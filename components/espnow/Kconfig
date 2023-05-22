@@ -1,0 +1,17 @@
+menu "ESP-NOW Light Sleep Configuration"
+
+    config ESPNOW_LIGHT_SLEEP
+        bool "Enter light sleep before sending ESP-NOW package"
+        default n
+        help
+            Since sending an ESP-NOW package needs a lot of power, if the coin cell solution is used, it needs some time to charge the electric capacity, so let device enter light sleep to wait some time.
+
+    config ESPNOW_LIGHT_SLEEP_DURATION
+        int "Light sleep duration"
+        range 15 120
+        depends on ESPNOW_LIGHT_SLEEP
+        default 30
+        help
+            Set the duration of light sleep, make it enough to charge the electric capacity.
+
+endmenu

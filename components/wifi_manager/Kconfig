@@ -1,0 +1,16 @@
+menu "WIFI_MANAGER"
+
+    config WIFI_MANAGER_TASK_SIZE
+        int "wifi manager task stack size"
+        default 2048
+        help
+            increase the size when stack overflow.
+
+    config WIFI_MANAGER_TASK_PRIORITY
+        int "wifi manager task priority"
+        range 0 5
+        default 3
+        help
+            increase the priority as per requirement.
+
+endmenu
