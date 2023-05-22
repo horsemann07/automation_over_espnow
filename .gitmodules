@@ -1,0 +1,3 @@
+[submodule "components/coreMQTT/coreMQTT"]
+	path = components/coreMQTT/coreMQTT
+	url = ./components/coreMQTT/coreMQTT/
