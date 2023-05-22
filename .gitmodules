@@ -1,3 +1,12 @@
-[submodule "components/coreMQTT/coreMQTT"]
+[submodule "coreMQTT"]
 	path = components/coreMQTT/coreMQTT
-	url = ./components/coreMQTT/coreMQTT/
+	url = https://github.com/FreeRTOS/coreMQTT.git
+	branch = v2.1.1
+[submodule "coreMQTT-Agent"]
+	path = components/coreMQTT-Agent/coreMQTT-Agent
+	url = https://github.com/FreeRTOS/coreMQTT-Agent.git
+	branch = v1.2.0
+[submodule "components/backoffAlgorithm/backoffAlgorithm"]
+	path = components/backoffAlgorithm/backoffAlgorithm
+	url = https://github.com/FreeRTOS/backoffAlgorithm.git
+	branch = v1.3.0
