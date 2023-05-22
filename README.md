@@ -1,6 +1,6 @@
 # Automation over ESP-NOW
 
-This project focuses on implementing automation capabilities using ESP-NOW communication protocol, taking inspiration from the concepts of alpha, beta, and gamma from the VSCP (Very Simple Control Protocol) framework. It leverages the VSCP message format, class, and type to enable seamless communication and coordination between different types of nodes for automation tasks.
+This project focuses on implementing automation capabilities using ESP-NOW communication protocol, taking inspiration from the concepts of alpha, beta, and gamma from the [VSCP (Very Simple Control Protocol)](https://github.com/grodansparadis/vscp-espnow) framework. It leverages the VSCP message format, class, and type to enable seamless communication and coordination between different types of nodes for automation tasks.
 
 ## Description
 
