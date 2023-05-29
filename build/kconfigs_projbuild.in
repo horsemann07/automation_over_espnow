@@ -1,7 +1,0 @@
-source "/home/raghav/workspace/esp/esp-idf/components/app_update/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/components/bootloader/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/components/esp_rom/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/components/esptool_py/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/components/partition_table/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/examples/automation_over_espnow/main/Kconfig.projbuild"
-source "/home/raghav/workspace/esp/esp-idf/examples/common_components/protocol_examples_common/Kconfig.projbuild"
