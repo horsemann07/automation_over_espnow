@@ -1,0 +1,158 @@
+define VSCP_CLASS1_PROTOCOL               (0)     /* VSCP Protocol Functionality */
+
+#define VSCP_TYPE_PROTOCOL_GENERAL                     0  /* General event. */
+#define VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE             2  /* New node on line / Probe. */
+#define VSCP_TYPE_PROTOCOL_PROBE_ACK                   3  /* Probe ACK. */
+#define VSCP_TYPE_PROTOCOL_SET_NICKNAME                6  /* Set nickname-ID for node. */
+#define VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED           7  /* Nickname-ID accepted. */
+#define VSCP_TYPE_PROTOCOL_DROP_NICKNAME               8  /* Drop nickname-ID / Reset Device. */
+
+
+#define VSCP_CLASS1_SECURITY               (2)     /* Security */
+
+#define VSCP_TYPE_SECURITY_GENERAL                0  /* General event */
+#define VSCP_TYPE_SECURITY_MOTION                 1  /* Motion Detect */
+#define VSCP_TYPE_SECURITY_GLASS_BREAK            2  /* Glass break */
+#define VSCP_TYPE_SECURITY_BEAM_BREAK             3  /* Beam break */
+#define VSCP_TYPE_SECURITY_SENSOR_TAMPER          4  /* Sensor tamper */
+#define VSCP_TYPE_SECURITY_SHOCK_SENSOR           5  /* Shock sensor */
+#define VSCP_TYPE_SECURITY_SMOKE_SENSOR           6  /* Smoke sensor */
+#define VSCP_TYPE_SECURITY_HEAT_SENSOR            7  /* Heat sensor */
+#define VSCP_TYPE_SECURITY_DOOR_OPEN              9  /* Door open */
+#define VSCP_TYPE_SECURITY_DOOR_CLOSE             10  /* Door Contact */
+#define VSCP_TYPE_SECURITY_WINDOW_OPEN            11 /* Window open */
+#define VSCP_TYPE_SECURITY_WINDOW_CLOSE           12 /* Window Contact */
+#define VSCP_TYPE_SECURITY_AUTHENTICATED          21 /* Authenticated */
+#define VSCP_TYPE_SECURITY_UNAUTHENTICATED        22 /* Unauthenticated */
+#define VSCP_TYPE_SECURITY_AUTHORIZED             23 /* Authorized */
+#define VSCP_TYPE_SECURITY_UNAUTHORIZED           24 /* Unauthorized */
+#define VSCP_TYPE_SECURITY_ID_CHECK               25 /* ID check */
+#define VSCP_TYPE_SECURITY_PIN_OK                 26 /* Valid pin */
+#define VSCP_TYPE_SECURITY_PIN_FAIL               27 /* Invalid pin */
+#define VSCP_TYPE_SECURITY_PIN_WARNING            28 /* Pin warning */
+#define VSCP_TYPE_SECURITY_PIN_ERROR              29 /* Pin error */
+#define VSCP_TYPE_SECURITY_PASSWORD_OK            30 /* Valid password */
+#define VSCP_TYPE_SECURITY_PASSWORD_FAIL          31 /* Invalid password */
+#define VSCP_TYPE_SECURITY_PASSWORD_WARNING       32 /* Password warning */
+#define VSCP_TYPE_SECURITY_PASSWORD_ERROR         33 /* Password error */
+#define VSCP_TYPE_SECURITY_GAS_SENSOR             34 /* Gas */
+#define VSCP_TYPE_SECURITY_IN_MOTION_DETECTED     35 /* In motion */
+#define VSCP_TYPE_SECURITY_NOT_IN_MOTION_DETECTED 36 /* Not in motion */
+#define VSCP_TYPE_SECURITY_VIBRATION_DETECTED     37 /* Vibration */
+
+
+#define VSCP_CLASS1_MEASUREMENT            (10)    /* Measurement */
+
+#define VSCP_TYPE_MEASUREMENT_GENERAL                      0  /* General event */
+#define VSCP_TYPE_MEASUREMENT_ELECTRIC_CURRENT             5  /* Electric Current */
+#define VSCP_TYPE_MEASUREMENT_TEMPERATURE                  6  /* Temperature */
+#define VSCP_TYPE_MEASUREMENT_INTENSITY_OF_LIGHT           8  /* Luminous Intensity (Intensity of light) */
+#define VSCP_TYPE_MEASUREMENT_FREQUENCY                    9  /* Frequency */
+#define VSCP_TYPE_MEASUREMENT_PRESSURE                     12 /* Pressure */
+#define VSCP_TYPE_MEASUREMENT_ENERGY                       13 /* Energy */
+efine VSCP_TYPE_MEASUREMENT_VOLUME                       28 /* Volume */
+#define VSCP_TYPE_MEASUREMENT_SOUND_INTENSITY              29 /* Sound intensity */
+#define VSCP_TYPE_MEASUREMENT_POSITION                     31 /* Position WGS 84 */
+#define VSCP_TYPE_MEASUREMENT_SPEED                        32 /* Speed */
+#define VSCP_TYPE_MEASUREMENT_ACCELERATION                 33 /* Acceleration */
+#define VSCP_TYPE_MEASUREMENT_SOUND_LEVEL                  60 /* Sound level */
+
+
+#define VSCP_CLASS1_INFORMATION            (20)    /* Information */
+
+#define VSCP_TYPE_INFORMATION_GENERAL                             0  /* General event */
+#define VSCP_TYPE_INFORMATION_BUTTON                              1  /* Button */
+#define VSCP_TYPE_INFORMATION_ON                                  3  /* On */
+#define VSCP_TYPE_INFORMATION_OFF                                 4  /* Off */
+#define VSCP_TYPE_INFORMATION_OPENED                              7  /* Opened */
+#define VSCP_TYPE_INFORMATION_CLOSED                              8  /* Closed */
+#define VSCP_TYPE_INFORMATION_NODE_HEARTBEAT                      9  /* Node Heartbeat */
+#define VSCP_TYPE_INFORMATION_BELOW_LIMIT                         10 /* Below limit */
+#define VSCP_TYPE_INFORMATION_ABOVE_LIMIT                         11 /* Above limit */
+define VSCP_TYPE_INFORMATION_STOP                                24 /* Stop */
+#define VSCP_TYPE_INFORMATION_START                               25 /* Start */
+#define VSCP_TYPE_INFORMATION_RESET_COMPLETED                     26 /* ResetCompleted */
+
+#define VSCP_CLASS1_CONTROL                (30)    /* Control */
+
+#define VSCP_TYPE_CONTROL_ALL_LAMPS              2  /* (All) Lamp(s) on/off */
+#define VSCP_TYPE_CONTROL_OPEN                   3  /* Open */
+#define VSCP_TYPE_CONTROL_CLOSE                  4  /* Close */
+#define VSCP_TYPE_CONTROL_TURNON                 5  /* TurnOn */
+#define VSCP_TYPE_CONTROL_TURNOFF                6  /* TurnOff */
+#define VSCP_TYPE_CONTROL_RESET                  9  /* Reset */
+#define VSCP_TYPE_CONTROL_DIM_LAMPS              20 /* Dim lamp(s) */
+#define VSCP_TYPE_CONTROL_CHANGE_CHANNEL         21 /* Change Channel */
+#define VSCP_TYPE_CONTROL_CHANGE_LEVEL           22 /* Change Level */
+#define VSCP_TYPE_CONTROL_SYNC                   26 /* Sync */
+#define VSCP_TYPE_CONTROL_LOCK                   42 /* Lock */
+#define VSCP_TYPE_CONTROL_UNLOCK                 43 /* Unlock */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_LEVEL     47 /* Set security level */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_PIN       48 /* Set security pin */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_PASSWORD  49 /* Set security password */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_TOKEN     50 /* Set security token */
+
+#define VSCP_CLASS1_DIAGNOSTIC             (506)   /* Diagnostic */
+
+/*  CLASS1.DIAGNOSTIC = 506  -  Diagnostic */
+#define VSCP_TYPE_DIAGNOSTIC_GENERAL            0  /* General event */
+#define VSCP_TYPE_DIAGNOSTIC_OVERVOLTAGE        1  /* Overvoltage */
+#define VSCP_TYPE_DIAGNOSTIC_UNDERVOLTAGE       2  /* Undervoltage */
+#define VSCP_TYPE_DIAGNOSTIC_VBUS_LOW           3  /* USB VBUS low */
+#define VSCP_TYPE_DIAGNOSTIC_BATTERY_LOW        4  /* Battery voltage low */
+#define VSCP_TYPE_DIAGNOSTIC_BATTERY_FULL       5  /* Battery full voltage */
+#define VSCP_TYPE_DIAGNOSTIC_BATTERY_ERROR      6  /* Battery error */
+#define VSCP_TYPE_DIAGNOSTIC_BATTERY_OK         7  /* Battery OK */
+#define VSCP_TYPE_DIAGNOSTIC_OVERCURRENT        8  /* Over current */
+
+#define VSCP_CLASS2_LEVEL1_INFORMATION1    (532)   /* Class2 Level 1I Information */
+
+#define VSCP2_TYPE_INFORMATION_GENERAL          0 /* General event */
+#define VSCP2_TYPE_INFORMATION_TOKEN_ACTIVITY   1 /* Token Activity */
+#define VSCP2_TYPE_INFORMATION_HEART_BEAT       2 /* Level II Node Heartbeat *
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

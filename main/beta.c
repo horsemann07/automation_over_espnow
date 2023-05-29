@@ -2,15 +2,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
-
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
 #include "esp_mac.h"
 #include "esp_random.h"
 #endif
-
+#include "esp_wifi.h"
 #include "espnow.h"
 #include "espnow_security.h"
 #include "espnow_security_handshake.h"
@@ -22,43 +22,59 @@
 /*Include backoff algorithm header for retry logic.*/
 #include "backoff_algorithm.h"
 
+#include "alpha.h"
+#include "event_handler_matrix.h"
+#include "vscp.h"
+
 static const char *TAG = "beta.c";
-/**
- * @brief The maximum number of retries for connecting to server.
- */
+
+/* The maximum number of retries for connecting to server.*/
 #define CONNECTION_RETRY_MAX_ATTEMPTS (5U)
 
-/**
- * @brief The maximum back-off delay (in milliseconds) for retrying connection to server.
- */
+/* The maximum back-off delay (in milliseconds) for retrying connection to server.*/
 #define CONNECTION_RETRY_MAX_BACKOFF_DELAY_MS (5000U)
 
-/**
- * @brief The base back-off delay (in milliseconds) to use for connection retry attempts.
- */
+/* The base back-off delay (in milliseconds) to use for connection retry attempts.*/
 #define CONNECTION_RETRY_BACKOFF_BASE_MS (500U)
 
 /* threshold to reset the beta */
-#define CONFIG_BUTTON_LONG_PRESS_TIME_MS (0)
+#define BUTTON_LONG_PRESS_TIME_MS CONFIG_BUTTON_LONG_PRESS_TIME_MS
 
 /* threshold to register the beta*/
-#define CONFIG_BUTTON_SHORT_PRESS_TIME_MS (0)
+#define BUTTON_SHORT_PRESS_TIME_MS CONFIG_BUTTON_SHORT_PRESS_TIME_MS
 
-espnow_addr_t self_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-espnow_addr_t alpha_node = { 0x00 };
+/* vscp receiver queue. */
+#define CONFIG_VSCP_RECV_QUEUE_SIZE (10)
 
-static QueueHandle_t g_vscp_queue;
-static uint8_t g_self_nickname = 0xFF;
-
+#define VSCP_QUEUE_MAX_WAIT_TIMEOUT_MS     (pdTICKS_TO_MS(5000))
+#define VSCP_SEMAPHORE_MAX_WAIT_TIMEOUT_MS (pdTICKS_TO_MS(5000))
 typedef struct
 {
-    uint8_t packetData[ESPNOW_SEC_PACKET_MAX_SIZE];
-    uint16_t packetSize;
-} Packet_t;
+    espnow_addr_t addr;
+    size_t size;
+    vscp_data_t *data;
+} espnow_data_receiver_t;
 
-static uint16_t vscp_max_data_received = 0;
+/* self guid/addr */
+static espnow_addr_t global_self_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
-uint8_t *g_receivedData = NULL;
+/* alpha node guid/addr */
+static espnow_addr_t global_alpha_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+/* self nickname */
+static uint8_t global_self_nickname = 0xFF;
+
+// static espnow_data_receiver_t g_vscp_receiver = { 0 };
+static QueueHandle_t g_vscp_queue = NULL;
+static SemaphoreHandle_t g_vscp_sem = NULL;
+/* Set the system time to the received timestamp */
+static struct timeval timestamp_tv;
+
+static BackoffAlgorithmContext_t g_backoff_reconnect_params;
+
+extern esp_err_t espnow_security_inteface_init(handler_for_data_t handle);
+extern esp_err_t espnow_security_inteface_initiator_connect(uint8_t *addr, size_t addr_num, uint8_t *app_key);
+
 /*
 STEPS AFTER START UP.
 1. Check Device register or not.( any method retriving stats from NVM. )
@@ -147,97 +163,124 @@ static void button_long_pressed_cb(void *arg, void *usr_data)
     ESP_LOGI(TAG, "BUTTON_LONG_PRESS_HOLD");
 }
 
-static void vscp_registeration_callback(uint8_t *src_addr, void *data, size_t size, wifi_pkt_rx_ctrl_t *rx_ctrl)
-{
-    // receive nickname and strore it.
-    if (src_addr)
-    {
-        // this might be alpha node
-        memcpy(alpha_node, src_addr, 6);
-    }
-
-    espnow_data_t *espnow_data = (espnow_data_t *)data;
-    vscp_data_t *vscp_data = (vscp_data_t)espnow_data->payload;
-
-    if (vscp_data->data_size_long) { }
-}
-
 static esp_err_t vscp_is_node_register(void)
 {
     /* return ESP_OK if register */
     return ESP_OK;
 }
 
-static void receivePacket(uint8_t *packetData, uint16_t packetSize)
+static esp_err_t vscp_enroll_evt_cb(uint8_t *src_addr, void *data, size_t size)
 {
-    static uint16_t receivedPacketCount = 0;
-    if (receivedPacketCount < vscp_max_data_received / ESPNOW_SEC_PACKET_MAX_SIZE)
-    {
-        memcpy(receivedPackets[receivedPacketCount].packetData, packetData, packetSize);
-        receivedPackets[receivedPacketCount].packetSize = packetSize;
-        receivedPacketCount++;
-    }
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    // helper_prepare_vscp_nodes_message((void *)data, global_self_nickname, VSCP_PRIORITY_3, global_self_addr, ,
+    //     VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL);
+    return ESP_OK;
 }
 
-static vscp_establish_secure_connection(void)
+static esp_err_t vscp_enroll_ack_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    return ESP_OK;
+}
+static esp_err_t vscp_new_node_online_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    return ESP_OK;
+}
+static esp_err_t vscp_set_nickname_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    return ESP_OK;
+}
+
+static esp_err_t vscp_nickname_accept_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    return ESP_OK;
+}
+
+static esp_err_t vscp_general_meas_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    return ESP_OK;
+}
+
+static esp_err_t vscp_registry_ack(vscp_data_t *data, uint8_t *src_addr)
 {
     esp_err_t ret = ESP_OK;
-    BackoffAlgorithmStatus_t backoffAlgStatus = BackoffAlgorithmSuccess;
-    BackoffAlgorithmContext_t reconnectParams;
-    uint16_t nextRetryBackOff;
-    uint8_t retryCount = 0;
+    // uint8_t *dest_addr = src_addr;
+    // size_t total_size;
+    // vscp_data_t vscp_ack = { 0 };
+    // espnow_frame_head_t head = { 0 };
+    // head.broadcast = false;
+    // head.retransmit_count = 2;
+    // head.security = true;
 
-    ret = espnow_app_init(&vscp_registeration_callback);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> espnow_app_init", esp_err_to_name(ret));
+    // if (data->vscp_class == VSCP_CLASS1_PROTOCOL)
+    // {
+    //     switch (data->vscp_type)
+    //     {
+    //         case VSCP_TYPE_PROTOCOL_SET_NICKNAME:
+    //             global_self_nickname = data->nickname;
+    //             (void)helper_prepare_vscp_nodes_message(&vscp_ack, global_self_nickname, VSCP_PRIORITY_NORMAL,
+    //                 global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
 
-    uint8_t key_info[APP_KEY_LEN];
+    //             ret = espnow_send(ESPNOW_DATA_TYPE_DATA, dest_addr, (void *)vscp_ack, ESPNOW_SEC_PACKET_MAX_SIZE,
+    //             &head,
+    //                 portMAX_DELAY);
+    //             ESP_ERROR_RETURN(ret != ESP_OK, ret, "VSCP_TYPE_PROTOCOL_SET_NICKNAME <%s>", esp_err_to_name(ret));
+    //             break;
 
-    if (espnow_get_key(key_info) != ESP_OK)
-    {
-        esp_fill_random(key_info, APP_KEY_LEN);
-    }
-    /* Initialize reconnect attempts and interval */
-    BackoffAlgorithm_InitializeParams(&reconnectParams, CONNECTION_RETRY_BACKOFF_BASE_MS,
-        CONNECTION_RETRY_MAX_BACKOFF_DELAY_MS, CONNECTION_RETRY_MAX_ATTEMPTS);
+    //         case VSCP_TYPE_PROTOCOL_PROBE_ACK:
+    //             /* now we save addr as alpha node src addr*/
+    //             espnow_add_peer(src_addr, NULL);
+    //             break;
 
-    /* Attempt to connect to MQTT broker. If connection fails, retry after
-     * a timeout. Timeout value will exponentially increase until maximum
-     * attempts are reached.
-     */
-    do
-    {
-        ret = espnow_app_start_sec_initiator(NULL, 0, &key_info); // send broadcast message
-
-        /* Generate a random number and get back-off value (in milliseconds) for the next connection retry. */
-        backoffAlgStatus = BackoffAlgorithm_GetNextBackoff(&reconnectParams, (uint32_t)rand(), &nextRetryBackOff);
-
-        if (backoffAlgStatus == BackoffAlgorithmRetriesExhausted)
-        {
-            ESP_LOGE(TAG, "Connection to the broker failed, all attempts exhausted.");
-            returnStatus = EXIT_FAILURE;
-        }
-        else if (backoffAlgStatus == BackoffAlgorithmSuccess)
-        {
-            ESP_LOGW(TAG, "Connection to the broker failed.");
-            vTaskDelay(pdMS_TO_TICKS(nextRetryBackOff));
-
-            ESP_LOGI(TAG, "Retrying connection <%d/%d> after %hu ms backoff.", ++retryCount,
-                CONNECTION_RETRY_MAX_ATTEMPTS, (unsigned short)nextRetryBackOff);
-        }
-    }
-    while ((ret != ESP_OK) && (backoffAlgStatus == BackoffAlgorithmSuccess));
-
+    //         default:
+    //             break;
+    //     }
+    // }
     return ret;
 }
+static esp_err_t vscp_timesync_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    if (!ESPNOW_ADDR_IS_EQUAL(global_alpha_addr, src_addr))
+    {
+        return ESP_FAIL;
+    }
+    vscp_data_t *vscp = (vscp_data_t *)data;
+    timestamp_tv.tv_sec = vscp->timestamp;
+    timestamp_tv.tv_usec = 0;
+    settimeofday(&timestamp_tv, NULL);
+    return ESP_OK;
+}
 
-// registration button
-esp_err_t init_register_button(void)
+// buttons
+static esp_err_t init_register_button(void)
 {
     // create gpio button
     button_config_t gpio_btn_cfg = {
     .type = BUTTON_TYPE_GPIO,
-    .long_press_ticks = CONFIG_BUTTON_LONG_PRESS_TIME_MS,
-    .short_press_ticks = CONFIG_BUTTON_SHORT_PRESS_TIME_MS,
+    .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS,
+    .short_press_time = CONFIG_BUTTON_SHORT_PRESS_TIME_MS,
     .gpio_button_config = {
         .gpio_num = 0,
         .active_level = 0,
@@ -250,185 +293,271 @@ esp_err_t init_register_button(void)
     }
 
     iot_button_register_cb(gpio_btn, BUTTON_SINGLE_CLICK, button_single_click_cb, BUTTON_SINGLE_CLICK);
-    iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_HOLD, button_single_click_cb, BUTTON_LONG_PRESS_HOLD);
+    iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_HOLD, button_long_pressed_cb, BUTTON_LONG_PRESS_HOLD);
 
     // TODO: blink led fast
+
+    return ESP_OK;
 }
 
-esp_err_t vscp_prepare_node_registration_msg(vscp_data_t *buffer)
+static void vscp_recv_task(void *arg)
 {
-    ESP_PARAM_CHECK(buffer);
-
-    prepare_vscp_nodes_message((void *)buffer, g_self_nickname, 3, VSCP_PRIORITY_3, self_addr, VSCP_CLASS1_PROTOCOL,
-        VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL);
-}
-
-esp_err_t vscp_send_data_over_espnow(const void *data, size_t size)
-{
-    ESP_PARAM_CHECK(data);
     esp_err_t ret = ESP_OK;
-    vscp_data_t *vscp = (vscp_data_t *)data;
+    g_vscp_queue = xQueueCreate(CONFIG_VSCP_RECV_QUEUE_SIZE, sizeof(espnow_data_receiver_t));
+    ESP_ERROR_GOTO(!g_vscp_queue, EXIT, "failed to create vscp receive queue.");
 
-    uint8_t *espnow_data = ESP_CALLOC(1, ESPNOW_SEC_PACKET_MAX_SIZE);
-
-    if (!data)
+    for (;;)
     {
-        return ESP_ERR_NO_MEM;
-    }
-    espnow_frame_head_t frame_head = { //
-        .retransmit_count = 2,
-        .broadcast = true,
-        .security = true,
-        .ack = true
-    };
-    vscp->data_size_long = CHECK_ESPNOW_VSCP_MAX_DATA_LEN_EXCEED(ESPNOW_SEC_PACKET_MAX_SIZE, vscp->sizeData);
-    if (vscp->data_size_long)
-    {
-        uint16_t offset = 0;
-        while (offset < size)
+        espnow_data_receiver_t espnow_recv = { 0 };
+        vscp_event_handler_t evt_handler = NULL;
+
+        if (xQueueReceive(g_vscp_queue, &espnow_recv, portMAX_DELAY))
         {
-            uint16_t remain_size
-                = (size - offset) < ESPNOW_SEC_PACKET_MAX_SIZE ? (size - offset) : ESPNOW_SEC_PACKET_MAX_SIZE;
+            vscp_data_t *data = (vscp_data_t *)espnow_recv.data;
+            /* first verify crc */
+            ret = helper_verify_crc((const vscp_data_t *)data);
+            ESP_ERROR_GOTO(ret != ESP_OK, OUTLOOP, "helper_verify_crc <%s>", esp_err_to_name(ret));
 
-            // Copy in espnow daa buffer for the current data
-            memcpy(espnow_data, vscp + offset, remain_size);
+            /* get event callback */
+            ret = vscp_get_event_handler(data->vscp_class, data->vscp_type, &evt_handler);
+            ESP_ERROR_GOTO(ret != ESP_OK, OUTLOOP, "vscp_get_event_handler <%s>", esp_err_to_name(ret));
 
-            ret = espnow_send(ESPNOW_DATA_TYPE_DATA, ESPNOW_ADDR_BROADCAST, espnow_data, remain_size, &frame_head,
-                portMAX_DELAY);
-            ESP_ERROR_GOTO(ret != ESP_OK, CLEANUP, "faild to send data afte %u offset", offset);
-            offset += remain_size;
-        }
-    }
-    else
-
-    {
-        memcpy(espnow_data, vscp, size);
-        ret = espnow_send(ESPNOW_DATA_TYPE_DATA, ESPNOW_ADDR_BROADCAST, espnow_data, size, &frame_head, portMAX_DELAY);
-    }
-
-CLEANUP:
-    ESP_FREE(espnow_data);
-    return ret;
-}
-
-esp_err_t vscp_init_registration_process(void)
-{
-    esp_err_t ret = vscp_establish_secure_connection();
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_establish_secure_connection", esp_err_to_name(ret));
-
-    vscp_data_t vscp_data = { 0 };
-    size_t total_size = 0;
-    // prepare registration message
-    (void)prepare_vscp_nodes_message((void *)&vscp_data, g_self_nickname, 3, VSCP_PRIORITY_3, self_addr,
-        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
-
-    ret = vscp_send_data_over_espnow(&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
-}
-
-static void espnow_main_task(void *arg)
-{
-    espnow_data_t espnow_data = { 0 };
-    vscp_data_t *vscp_data = NULL;
-    bool is_long_data_receiving = false;
-
-    ESP_LOGI(TAG, "main task entry");
-
-    g_vscp_queue = xQueueCreate(10, sizeof(espnow_data_t));
-    ESP_ERROR_GOTO(!g_vscp_queue, EXIT, "Create espnow event queue fail");
-
-    uint16_t totalReceivedSize = 0;
-    uint16_t offset = 0;
-    while (true)
-    {
-        if (xQueueReceive(g_vscp_queue, &espnow_data, portMAX_DELAY) != pdTRUE)
-        {
-            continue;
-        }
-
-        if (!is_long_data_receiving)
-        {
-            vscp_data = (vscp_data_t *)espnow_data->payload;
-        }
-
-        if (vscp_data.vscp_class == VSCP_CLASS1_PROTOCOL &&vscp_data.vscp_type = VSCP_TYPE_PROTOCOL_PROBE_ACK)
-        {
-            // symmetric key or app key is taken care by espnow components
-            g_self_nickname = vscp_data.nickname;
-        }
-
-        /* nothing to receive */
-        if (vscp_data.sizeData == 0)
-        {
-            continue;
-        }
-
-        if (vscp_data.data_size_long)
-        {
-            is_long_data_receiving = true;
-            if (!g_receivedData)
+            /* call event handler */
+            if (evt_handler)
             {
-                g_receivedData = ESP_CALLOC(1, VSCP_TOTAL_DATA_SIZE(vscp_data.sizeData));
-                if (!g_receivedData)
+                ret = evt_handler((uint8_t *)&espnow_recv.addr, (void *)espnow_recv.data, espnow_recv.size);
+                if (ret != ESP_OK)
                 {
-                    ESP_LOGE(TAG, "ESP_ERR_NO_MEM to receive data");
-                    goto EXIT;
+                    ESP_LOGE(TAG, "evt_handler of class<%d>type<%d>, <%s>", data->vscp_class, data->vscp_type,
+                        esp_err_to_name(ret));
                 }
             }
-            memcpy(g_receivedData + offset, espnow_data.payload, espnow_data.size);
-            // if (offset > 0)
-            // {
-            //     memcpy(g_receivedData, espnow_data.payload, espnow_data.size);
-            //     // offset += espnow_data.size
-            // }
-            // else
-            // {
-            //     // uint8_t filter_vscp_header = sizeof(vscp_data_t);
-            //     memcpy(g_receivedData, espnow_data.payload, espnow_data.size);
-            //     // offset += (espnow_data.size - filter_vscp_header);
-            // }
-            offset += espnow_data.size;
-
-            if (offset >= VSCP_TOTAL_DATA_SIZE(vscp_data.sizeData))
-            {
-                offset = 0;
-                is_long_data_receiving = false
-            }
         }
+
+    OUTLOOP:
+        xSemaphoreGive(g_vscp_sem);
     }
 
 EXIT:
     if (g_vscp_queue)
     {
-        while (xQueueReceive(g_vscp_queue, &vscp_data, 0))
-        {
-            ESP_FREE(vscp_data.pdata);
-        }
-
         vQueueDelete(g_vscp_queue);
         g_vscp_queue = NULL;
     }
-
-    // if (g_ack_queue)
-    // {
-    //     vQueueDelete(g_ack_queue);
-    //     g_ack_queue = NULL;
-    // }
-
-    ESP_LOGI(TAG, "main task exit");
     vTaskDelete(NULL);
 }
-
-esp_err_t vscp_start_beta(void)
+/**
+ * @brief VSCP data receive callback function.
+ *
+ * This function is the callback for receiving VSCP data.
+ *
+ * @param src_addr Pointer to the source MAC address.
+ * @param data Pointer to the received data.
+ * @param size Size of the received data.
+ * @param rx_ctrl Pointer to the received packet control information.
+ * @return
+ *     - ESP_OK if the data is successfully received.
+ *     - ESP_ERR_NO_MEM if memory allocation fails.
+ *     - Other error codes if there is an error in processing the received data.
+ */
+static esp_err_t vscp_data_receive_cb(uint8_t *src_addr, void *data, size_t size, wifi_pkt_rx_ctrl_t *rx_ctrl)
 {
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+    ESP_PARAM_CHECK(rx_ctrl);
+    esp_err_t ret = ESP_FAIL;
+    /* Wait for previous received message should processed */
+    if (xSemaphoreTake(g_vscp_sem, VSCP_SEMAPHORE_MAX_WAIT_TIMEOUT_MS) == pdPASS)
+    {
+        espnow_data_receiver_t vscp_recv_data = { 0 };
+
+        memcpy(&vscp_recv_data.addr, src_addr, 6);
+        if (!vscp_recv_data.data)
+        {
+            return ESP_ERR_NO_MEM; // Memory allocation failed
+        }
+        if (xQueueSend(g_vscp_queue, (void *)&vscp_recv_data, VSCP_QUEUE_MAX_WAIT_TIMEOUT_MS) != pdFAIL)
+        {
+            ret = ESP_OK; // Data successfully sent to the queue
+        }
+    }
+
+    return ret;
+}
+
+esp_err_t vscp_send_data_over_espnow(const void *data, size_t size)
+{
+    ESP_PARAM_CHECK(data);
+
+    BackoffAlgorithmStatus_t backoffAlgStatus = BackoffAlgorithmSuccess;
+    uint16_t nextRetryBackOff;
+    uint8_t retryCount = 0;
     esp_err_t ret = ESP_OK;
 
-    xTaskCreate(&espnow_main_task, "Beta Task", 1024 * 2, NULL, 5, NULL);
+    uint8_t *espnow_data = ESP_CALLOC(1, ESPNOW_SEC_PACKET_MAX_SIZE);
+
+    if (!espnow_data)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
+    espnow_frame_head_t frame_head = { .retransmit_count = 2, .broadcast = true, .security = true, .ack = true };
+    memcpy(espnow_data, data, size);
+
+    /* init backoff attemp done */
+    g_backoff_reconnect_params.attemptsDone = 0;
+    do
+    {
+        ret = espnow_send(ESPNOW_DATA_TYPE_DATA, global_alpha_addr, espnow_data, size, &frame_head,
+            VSCP_QUEUE_MAX_WAIT_TIMEOUT_MS);
+        if (ret != ESP_OK)
+        {
+            /* Generate a random number and get back-off value (in milliseconds) for the next connection retry. */
+            backoffAlgStatus
+                = BackoffAlgorithm_GetNextBackoff(&g_backoff_reconnect_params, (uint32_t)rand(), &nextRetryBackOff);
+
+            if (backoffAlgStatus == BackoffAlgorithmRetriesExhausted)
+            {
+                ESP_LOGE(TAG, "espnow_send failed <%s>, all attempts exhausted.", esp_err_to_name(ret));
+                ret = ESP_FAIL;
+            }
+            else if (backoffAlgStatus == BackoffAlgorithmSuccess)
+            {
+                ESP_LOGW(TAG, "espnow_send failed <%s>", esp_err_to_name(ret));
+                vTaskDelay(pdMS_TO_TICKS(nextRetryBackOff));
+
+                ESP_LOGI(TAG, "Sending again... <%d/%d> after %hu ms backoff.", ++retryCount,
+                    CONNECTION_RETRY_MAX_ATTEMPTS, (unsigned short)nextRetryBackOff);
+            }
+        }
+    }
+    while ((ret != ESP_OK) && (backoffAlgStatus == BackoffAlgorithmSuccess));
+
+    ESP_FREE(espnow_data);
+    return ret;
+}
+
+static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void)
+{
+    esp_err_t ret = ESP_OK;
+    BackoffAlgorithmStatus_t backoffAlgStatus = BackoffAlgorithmSuccess;
+    uint16_t nextRetryBackOff;
+    uint8_t retryCount = 0;
+
+    // TODO:
+    ret = espnow_security_inteface_init(&vscp_data_receive_cb);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> espnow_app_init", esp_err_to_name(ret));
+
+    uint8_t key_info[APP_KEY_LEN];
+
+    if (espnow_get_key(key_info) != ESP_OK)
+    {
+        esp_fill_random(key_info, APP_KEY_LEN);
+    }
+    /* Initialize reconnect attempts and interval */
+    g_backoff_reconnect_params.attemptsDone = 0;
+
+    /* Attempt to connect to Alpha. If connection fails, retry after
+     * a timeout. Timeout value will exponentially increase until maximum
+     * attempts are reached.
+     */
+    do
+    {
+        // TODO:
+        ret = espnow_security_inteface_initiator_connect(NULL, 0, (uint8_t *)&key_info); // send broadcast message
+
+        if (ret != ESP_OK)
+        {
+            /* Generate a random number and get back-off value (in milliseconds) for the next connection retry. */
+            backoffAlgStatus
+                = BackoffAlgorithm_GetNextBackoff(&g_backoff_reconnect_params, (uint32_t)rand(), &nextRetryBackOff);
+
+            if (backoffAlgStatus == BackoffAlgorithmRetriesExhausted)
+            {
+                ESP_LOGE(TAG, "Connection to the broker failed, all attempts exhausted.");
+                ret = ESP_FAIL;
+            }
+            else if (backoffAlgStatus == BackoffAlgorithmSuccess)
+            {
+                ESP_LOGW(TAG, "Connection to the broker failed.");
+                vTaskDelay(pdMS_TO_TICKS(nextRetryBackOff));
+
+                ESP_LOGI(TAG, "Retrying connection <%d/%d> after %hu ms backoff.", ++retryCount,
+                    CONNECTION_RETRY_MAX_ATTEMPTS, (unsigned short)nextRetryBackOff);
+            }
+        }
+    }
+    while ((ret != ESP_OK) && (backoffAlgStatus == BackoffAlgorithmSuccess));
+
+    return ret;
+}
+
+esp_err_t vscp_enroll_device(void)
+{
+    /* established secure connection */
+    esp_err_t ret = vscp_establish_secure_connection_with_backoff_delay();
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_establish_secure_connection_with_backoff_delay",
+        esp_err_to_name(ret));
+
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
+        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL, NULL, &total_size);
+
+    ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+
+    return ret;
+}
+
+esp_err_t vscp_init_beta_app(void)
+{
+    esp_err_t ret = ESP_OK;
+    /* get self mac addr */
+    esp_wifi_get_mac(WIFI_IF_STA, global_self_addr);
+
+#ifdef CONFIG_USE_BUTTON_ENABLE
+    ret = init_register_button();
+    if (ret != ESP_OK)
+    {
+        return ret;
+    }
+#endif /* CONFIG_USE_BUTTON_ENABLE */
+
+    /* Register event callback */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL, &vscp_enroll_evt_cb));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL_ACK, &vscp_enroll_ack_evt_cb));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE,
+        &vscp_new_node_online_evt_cb));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_SET_NICKNAME, &vscp_set_nickname_evt_cb));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(vscp_register_event_handler(VSCP_CLASS1_PROTOCOL,
+        VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, &vscp_nickname_accept_evt_cb));
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_CONTROL, VSCP_TYPE_CONTROL_TIME_SYNC, &vscp_timesync_evt_cb));
+    /* meseasurement event calbacks */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_MEASUREMENT, VSCP_TYPE_MEASUREMENT_GENERAL, &vscp_general_meas_evt_cb));
+
+    /* Initialize reconnect attempts and interval */
+    BackoffAlgorithm_InitializeParams(&g_backoff_reconnect_params, CONNECTION_RETRY_BACKOFF_BASE_MS,
+        CONNECTION_RETRY_MAX_BACKOFF_DELAY_MS, CONNECTION_RETRY_MAX_ATTEMPTS);
+
     ret = vscp_is_node_register();
     if (ret != ESP_OK)
     {
         // initiate register process
-        ret = vscp_init_registration_process();
-        ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_init_registration_process", esp_err_to_name(ret));
+        ret = vscp_enroll_device();
+        ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_enroll_process_start", esp_err_to_name(ret));
     }
+
+    xTaskCreate(&vscp_recv_task, "Beta Task", 1024 * 2, NULL, 5, NULL);
+
+    return ret;
 }

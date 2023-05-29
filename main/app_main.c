@@ -27,7 +27,7 @@
 #include "nvs_flash.h"
 #include "wifim.h"
 
-extern int aws_iot_demo_main(int argc, char **argv);
+// extern int aws_iot_demo_main(int argc, char **argv);
 static const char *TAG = "app_main";
 
 // temporary ssid and password
@@ -35,6 +35,7 @@ static const char *TAG = "app_main";
 #define WIFI_SSID_LEN    ((uint16_t)(strlen(WIFI_SSID)))
 #define WIFI_PASSKEY     ("TheDemonSlayer")
 #define WIFI_PASSKEY_LEN ((uint16_t)(strlen(WIFI_PASSKEY)))
+extern esp_err_t vscp_init_beta_app(void);
 
 void app_main(void)
 {
@@ -80,7 +81,16 @@ void app_main(void)
         // Connection failed, handle the error
         ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
     }
-    // aws_iot_demo_main(0, NULL);
-
+    ret = vscp_init_beta_app();
+    if (ret == ESP_OK)
+    {
+        // Connection successful
+        ESP_LOGI(TAG, "Connection successful");
+    }
+    else
+    {
+        // Connection failed, handle the error
+        ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
+    }
     return;
 }

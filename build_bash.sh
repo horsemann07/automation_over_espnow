@@ -22,6 +22,9 @@ detect_port() {
 
 # Menu options
 while true; do
+    # clear screen
+    clear
+    
     echo "Choose an option:"
     echo "0. Delete Build"
     echo "1. Full clean"

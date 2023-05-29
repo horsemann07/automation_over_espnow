@@ -80,11 +80,13 @@ extern "C" {
         | (((val) << 8) & 0x000000FF00000000) | (((val) << 24) & 0x0000FF0000000000)                                   \
         | (((val) << 40) & 0x00FF000000000000) | (((val) << 56) & 0xFF00000000000000))
 
-esp_err_t prepare_vscp_nodes_message(void *buffer, uint8_t nickname, uint8_t priority, uint8_t guid[6], uint16_t class,
-    uint16_t type, const char *data, size_t *size);
+esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t nickname, uint8_t priority, uint8_t guid[6],
+    uint16_t class, uint16_t type, const char *data, size_t *size);
 
-esp_err_t prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t priority, long timestamp, uint8_t guid[6],
-    uint16_t class, uint16_t type, const char *data);
+esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t priority, long timestamp,
+    uint8_t guid[6], uint16_t class, uint16_t type, const char *data);
+
+esp_err_t helper_verify_crc(const vscp_data_t *data);
 #define ALPHA
 
 #ifdef __cplusplus

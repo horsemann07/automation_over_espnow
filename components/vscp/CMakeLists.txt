@@ -3,7 +3,7 @@ set(srcs "")
 set(requires "")
 set(include_dirs "")
 
-# list(APPEND srcs            "src/core_wifim.c" "src/wifim.c")
+list(APPEND srcs            "srcs/vscp_helper.c" "srcs/event_handler_matrix.c")
 list(APPEND include_dirs    "include" )
 
 # set(CMAKE_C_CLANG_TIDY_EXECUTABLE /usr/bin/clang-tidy)
@@ -16,7 +16,8 @@ list(APPEND requires "spi_flash"
                      "esp_timer" 
                      "esp_wifi" 
                      "driver"
-                     "lwip")
+                     "lwip"
+                     "utils")
 idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS ${include_dirs}
