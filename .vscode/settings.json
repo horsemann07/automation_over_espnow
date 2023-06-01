@@ -1,14 +1,7 @@
 {
     "idf.adapterTargetName": "esp32",
     "files.associations": {
-        "vscp.h": "c",
-        "array": "c",
-        "string": "c",
-        "string_view": "c",
-        "queue.h": "c",
-        "espnow_storage.h": "c",
-        "espnow_security.h": "c",
-        "espnow_utils.h": "c",
-        "espnow.h": "c"
+        "vscp_class.h": "c",
+        "*.tcc": "c"
     }
 }

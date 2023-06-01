@@ -1,5 +1,6 @@
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 
 #include "esp_err.h"
@@ -10,6 +11,7 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 #endif
+#include "cJSON.h"
 #include "esp_wifi.h"
 #include "espnow.h"
 #include "espnow_security.h"
@@ -48,6 +50,10 @@ static const char *TAG = "beta.c";
 
 #define VSCP_QUEUE_MAX_WAIT_TIMEOUT_MS     (pdTICKS_TO_MS(5000))
 #define VSCP_SEMAPHORE_MAX_WAIT_TIMEOUT_MS (pdTICKS_TO_MS(5000))
+
+#define EVENT_GOT_NICKNAME (1 << 1)
+#define EVENT_ENROLLED     (1 << 2)
+
 typedef struct
 {
     espnow_addr_t addr;
@@ -64,9 +70,13 @@ static espnow_addr_t global_alpha_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 /* self nickname */
 static uint8_t global_self_nickname = 0xFF;
 
+static uint8_t g_beta_state = VSCP_TYPE_PROTOCOL_GENERAL;
+
 // static espnow_data_receiver_t g_vscp_receiver = { 0 };
 static QueueHandle_t g_vscp_queue = NULL;
 static SemaphoreHandle_t g_vscp_sem = NULL;
+static EventGroupHandle_t g_vscp_event_grp = NULL;
+
 /* Set the system time to the received timestamp */
 static struct timeval timestamp_tv;
 
@@ -74,7 +84,8 @@ static BackoffAlgorithmContext_t g_backoff_reconnect_params;
 
 extern esp_err_t espnow_security_inteface_init(handler_for_data_t handle);
 extern esp_err_t espnow_security_inteface_initiator_connect(uint8_t *addr, size_t addr_num, uint8_t *app_key);
-
+static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void);
+esp_err_t vscp_send_data_over_espnow(const void *data, size_t size);
 /*
 STEPS AFTER START UP.
 1. Check Device register or not.( any method retriving stats from NVM. )
@@ -169,97 +180,159 @@ static esp_err_t vscp_is_node_register(void)
     return ESP_OK;
 }
 
-static esp_err_t vscp_enroll_evt_cb(uint8_t *src_addr, void *data, size_t size)
+/**
+ * @brief Register a new VSCP node.
+ *
+ * @return ESP_OK on success, error code otherwise.
+ */
+esp_err_t vscp_register_new_node(void)
 {
-    ESP_PARAM_CHECK(src_addr);
-    ESP_PARAM_CHECK(data);
-    ESP_PARAM_CHECK(size);
+    /* established secure connection */
+    esp_err_t ret = vscp_establish_secure_connection_with_backoff_delay();
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_establish_secure_connection_with_backoff_delay",
+        esp_err_to_name(ret));
 
-    // helper_prepare_vscp_nodes_message((void *)data, global_self_nickname, VSCP_PRIORITY_3, global_self_addr, ,
-    //     VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL);
-    return ESP_OK;
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
+        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
+
+    ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+
+    return ret;
 }
 
-static esp_err_t vscp_enroll_ack_evt_cb(uint8_t *src_addr, void *data, size_t size)
-{
-    ESP_PARAM_CHECK(src_addr);
-    ESP_PARAM_CHECK(data);
-    ESP_PARAM_CHECK(size);
-
-    return ESP_OK;
-}
-static esp_err_t vscp_new_node_online_evt_cb(uint8_t *src_addr, void *data, size_t size)
-{
-    ESP_PARAM_CHECK(src_addr);
-    ESP_PARAM_CHECK(data);
-    ESP_PARAM_CHECK(size);
-
-    return ESP_OK;
-}
+/**
+ * @brief Event handler for setting the nickname.
+ *
+ * @param src_addr Source address.
+ * @param data Data.
+ * @param size Size of the data.
+ * @return ESP_OK on success, error code otherwise.
+ */
 static esp_err_t vscp_set_nickname_evt_cb(uint8_t *src_addr, void *data, size_t size)
 {
     ESP_PARAM_CHECK(src_addr);
     ESP_PARAM_CHECK(data);
     ESP_PARAM_CHECK(size);
 
+    vscp_data_t *vscp_data = (vscp_data_t *)data;
+    const char *str_data = (const char *)vscp_data->pdata;
+
+    cJSON *pJson = cJSON_Parse(str_data);
+    ESP_ALLOC_CHECK(pJson);
+
+    cJSON *nameObj = cJSON_GetObjectItemCaseSensitive(pJson, "nickname");
+    if (cJSON_IsNumber(nameObj))
+    {
+        global_self_nickname = (uint8_t)cJSON_GetNumberValue(nameObj);
+
+        // TODO: Write nickname in NVS
+        ESP_LOGI(TAG, "got nickname: %u", global_self_nickname);
+    }
+    cJSON_Delete(pJson);
+    xEventGroupSetBits(g_vscp_event_grp, EVENT_GOT_NICKNAME);
     return ESP_OK;
 }
 
-static esp_err_t vscp_nickname_accept_evt_cb(uint8_t *src_addr, void *data, size_t size)
+/**
+ * @brief Event handler for accepting the nickname.
+ *
+ * @return ESP_OK on success, error code otherwise.
+ */
+static esp_err_t vscp_nickname_accept_evt_cb(void)
+{
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
+        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
+
+    esp_err_t ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+
+    return ret;
+}
+
+/**
+ * @brief Event handler for enrolling.
+ *
+ * @param src_addr Source address.
+ * @param data Data.
+ * @param size Size of the data.
+ * @return ESP_OK on success, error code otherwise.
+ */
+static esp_err_t vscp_enroll_evt_cb(uint8_t *src_addr, void *data, size_t size)
 {
     ESP_PARAM_CHECK(src_addr);
     ESP_PARAM_CHECK(data);
     ESP_PARAM_CHECK(size);
 
+    // TODO: Write the register status as success in NVS
+    xEventGroupSetBits(g_vscp_event_grp, EVENT_ENROLLED);
     return ESP_OK;
 }
 
+/**
+ * @brief Event handler for acknowledging enrollment.
+ *
+ * @return ESP_OK on success, error code otherwise.
+ */
+static esp_err_t vscp_enroll_ack_evt_cb(void)
+{
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
+        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL_ACK, NULL, &total_size);
+
+    esp_err_t ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+
+    return ret;
+}
+
+/**
+ * @brief Event handler for general measurement events.
+ *
+ * @param src_addr Source address.
+ * @param data Data.
+ * @param size Size of the data.
+ * @return ESP_OK on success, error code otherwise.
+ */
 static esp_err_t vscp_general_meas_evt_cb(uint8_t *src_addr, void *data, size_t size)
 {
     ESP_PARAM_CHECK(src_addr);
     ESP_PARAM_CHECK(data);
     ESP_PARAM_CHECK(size);
 
-    return ESP_OK;
-}
+    cJSON *pJson = cJSON_CreateObject();
+    ESP_ALLOC_CHECK(pJson);
 
-static esp_err_t vscp_registry_ack(vscp_data_t *data, uint8_t *src_addr)
-{
-    esp_err_t ret = ESP_OK;
-    // uint8_t *dest_addr = src_addr;
-    // size_t total_size;
-    // vscp_data_t vscp_ack = { 0 };
-    // espnow_frame_head_t head = { 0 };
-    // head.broadcast = false;
-    // head.retransmit_count = 2;
-    // head.security = true;
+    int8_t temp = (int8_t)(rand() % 50);
+    cJSON_AddNumberToObject(pJson, "temp", (double)temp);
+    const char *json_str = cJSON_PrintUnformatted(pJson);
+    if (!json_str)
+    {
+        return ESP_ERR_NO_MEM;
+    }
 
-    // if (data->vscp_class == VSCP_CLASS1_PROTOCOL)
-    // {
-    //     switch (data->vscp_type)
-    //     {
-    //         case VSCP_TYPE_PROTOCOL_SET_NICKNAME:
-    //             global_self_nickname = data->nickname;
-    //             (void)helper_prepare_vscp_nodes_message(&vscp_ack, global_self_nickname, VSCP_PRIORITY_NORMAL,
-    //                 global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
-
-    //             ret = espnow_send(ESPNOW_DATA_TYPE_DATA, dest_addr, (void *)vscp_ack, ESPNOW_SEC_PACKET_MAX_SIZE,
-    //             &head,
-    //                 portMAX_DELAY);
-    //             ESP_ERROR_RETURN(ret != ESP_OK, ret, "VSCP_TYPE_PROTOCOL_SET_NICKNAME <%s>", esp_err_to_name(ret));
-    //             break;
-
-    //         case VSCP_TYPE_PROTOCOL_PROBE_ACK:
-    //             /* now we save addr as alpha node src addr*/
-    //             espnow_add_peer(src_addr, NULL);
-    //             break;
-
-    //         default:
-    //             break;
-    //     }
-    // }
+    esp_err_t ret = vscp_send_data_over_espnow((const void *)json_str, strlen(json_str));
+    cJSON_Delete(pJson);
     return ret;
 }
+
+/**
+ * @brief Event handler for time synchronization events.
+ *
+ * @param src_addr Source address.
+ * @param data Data.
+ * @param size Size of the data.
+ * @return ESP_OK on success, ESP_FAIL if the source address is not equal to the expected address.
+ */
 static esp_err_t vscp_timesync_evt_cb(uint8_t *src_addr, void *data, size_t size)
 {
     if (!ESPNOW_ADDR_IS_EQUAL(global_alpha_addr, src_addr))
@@ -292,9 +365,8 @@ static esp_err_t init_register_button(void)
         ESP_LOGE(TAG, "Button create failed");
     }
 
-    iot_button_register_cb(gpio_btn, BUTTON_SINGLE_CLICK, button_single_click_cb, BUTTON_SINGLE_CLICK);
-    iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_HOLD, button_long_pressed_cb, BUTTON_LONG_PRESS_HOLD);
-
+    iot_button_register_cb(gpio_btn, BUTTON_SINGLE_CLICK, button_single_click_cb, NULL);
+    iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_HOLD, button_long_pressed_cb, NULL);
     // TODO: blink led fast
 
     return ESP_OK;
@@ -493,57 +565,78 @@ static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void)
     return ret;
 }
 
-esp_err_t vscp_enroll_device(void)
+static void vscp_enrolling_process_task(void *paramters)
 {
-    /* established secure connection */
-    esp_err_t ret = vscp_establish_secure_connection_with_backoff_delay();
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_establish_secure_connection_with_backoff_delay",
-        esp_err_to_name(ret));
+    (void)paramters;
+    esp_err_t ret = ESP_OK;
+    g_vscp_event_grp = xEventGroupCreate();
+    ESP_ERROR_GOTO(!g_vscp_event_grp, EXIT, "failed to create event group");
 
-    vscp_data_t vscp_data = { 0 };
-    size_t total_size = 0;
+    EventBits_t eventBits = 0;
+    for (;;)
+    {
+        switch (g_beta_state)
+        {
+            case VSCP_TYPE_PROTOCOL_GENERAL:
+                ret = vscp_register_new_node();
+                ESP_ERROR_CONTINUE(ret != ESP_OK, "vscp_register_new_node <%s>", esp_err_to_name(ret));
+                // Wait for any event bit to be set
+                eventBits = xEventGroupWaitBits(g_vscp_event_grp, EVENT_GOT_NICKNAME, pdTRUE, pdTRUE, portMAX_DELAY);
+                g_beta_state = VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED;
+                break;
 
-    // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
-        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL, NULL, &total_size);
+            case VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED:
+                ret = vscp_nickname_accept_evt_cb();
+                ESP_ERROR_CONTINUE(ret != ESP_OK, "vvscp_nickname_accept_ack_evt <%s>", esp_err_to_name(ret));
+                // Wait for any event bit to be set
+                eventBits = xEventGroupWaitBits(g_vscp_event_grp, EVENT_ENROLLED, pdTRUE, pdTRUE, portMAX_DELAY);
+                g_beta_state = VSCP_TYPE_PROTOCOL_ENROLL_ACK;
+                break;
 
-    ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+            case VSCP_TYPE_PROTOCOL_ENROLL_ACK:
+                ret = vscp_enroll_ack_evt_cb();
+                ESP_ERROR_CONTINUE(ret != ESP_OK, "vscp_enroll_ack_evt_cb <%s>", esp_err_to_name(ret));
 
-    return ret;
+                g_beta_state = VSCP_TYPE_PROTOCOL_MAX;
+                // Exit from loop
+
+                break;
+            default:
+                goto EXIT;
+                break;
+        }
+    }
+EXIT:
+    ESP_LOGI(TAG, "<%d:%s> deleting...", __LINE__, __func__);
+    vTaskDelete(NULL);
 }
-
 esp_err_t vscp_init_beta_app(void)
 {
     esp_err_t ret = ESP_OK;
     /* get self mac addr */
     esp_wifi_get_mac(WIFI_IF_STA, global_self_addr);
 
-#ifdef CONFIG_USE_BUTTON_ENABLE
+    // #ifdef CONFIG_USE_BUTTON_ENABLE
     ret = init_register_button();
     if (ret != ESP_OK)
     {
         return ret;
     }
-#endif /* CONFIG_USE_BUTTON_ENABLE */
+    // #endif /* CONFIG_USE_BUTTON_ENABLE */
 
-    /* Register event callback */
+    /*  event callback */
     ESP_ERROR_CHECK_WITHOUT_ABORT(
-        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL, &vscp_enroll_evt_cb));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(
-        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL_ACK, &vscp_enroll_ack_evt_cb));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE,
-        &vscp_new_node_online_evt_cb));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(
-        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_SET_NICKNAME, &vscp_set_nickname_evt_cb));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(vscp_register_event_handler(VSCP_CLASS1_PROTOCOL,
-        VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, &vscp_nickname_accept_evt_cb));
+        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_SET_NICKNAME, vscp_set_nickname_evt_cb));
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(
-        vscp_register_event_handler(VSCP_CLASS1_CONTROL, VSCP_TYPE_CONTROL_TIME_SYNC, &vscp_timesync_evt_cb));
+        vscp_register_event_handler(VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL, vscp_enroll_evt_cb));
+
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+        vscp_register_event_handler(VSCP_CLASS1_CONTROL, VSCP_TYPE_CONTROL_TIME_SYNC, vscp_timesync_evt_cb));
+
     /* meseasurement event calbacks */
     ESP_ERROR_CHECK_WITHOUT_ABORT(
-        vscp_register_event_handler(VSCP_CLASS1_MEASUREMENT, VSCP_TYPE_MEASUREMENT_GENERAL, &vscp_general_meas_evt_cb));
+        vscp_register_event_handler(VSCP_CLASS1_MEASUREMENT, VSCP_TYPE_MEASUREMENT_GENERAL, vscp_general_meas_evt_cb));
 
     /* Initialize reconnect attempts and interval */
     BackoffAlgorithm_InitializeParams(&g_backoff_reconnect_params, CONNECTION_RETRY_BACKOFF_BASE_MS,
@@ -552,12 +645,9 @@ esp_err_t vscp_init_beta_app(void)
     ret = vscp_is_node_register();
     if (ret != ESP_OK)
     {
-        // initiate register process
-        ret = vscp_enroll_device();
-        ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_enroll_process_start", esp_err_to_name(ret));
+        // initiate register proce
+        xTaskCreate(&vscp_enrolling_process_task, "enroll process", 1024 * 3, NULL, 5, NULL);
+        xTaskCreate(&vscp_recv_task, "Beta Task", 1024 * 2, NULL, 5, NULL);
     }
-
-    xTaskCreate(&vscp_recv_task, "Beta Task", 1024 * 2, NULL, 5, NULL);
-
     return ret;
 }

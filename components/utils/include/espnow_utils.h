@@ -101,6 +101,13 @@ typedef struct espnow_time_config {
         } \
     } while(0)
 
+#define ESP_ALLOC_CHECK(ptr) do { \
+        if (!(ptr)) { \
+            ESP_LOGD(TAG, "[%s, %d]: <ESP_ERR_NO_MEM>", __func__, __LINE__); \
+            return ESP_ERR_NO_MEM; \
+        } \
+    } while(0)
+
 /**
  * @brief Reboot the chip after a delay
  *

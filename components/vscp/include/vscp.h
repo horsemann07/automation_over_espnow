@@ -108,7 +108,7 @@ typedef struct
 } __attribute__((packed)) vscp_mqtt_data_t;
 
 /* vscp event handler prototype */
-typedef int (*vscp_event_handler_t)(uint8_t *, uint8_t *, size_t);
+typedef esp_err_t (*vscp_event_handler_t)(uint8_t *, uint8_t *, size_t);
 
 /**
  * @brief maxmimum vscp data can be send in single packet over espnow.
@@ -149,12 +149,11 @@ typedef int (*vscp_event_handler_t)(uint8_t *, uint8_t *, size_t);
 #define VSCP_CLASS1_PROTOCOL (0)               /* VSCP Protocol Functionality */
 
 #define VSCP_TYPE_PROTOCOL_GENERAL           0 /* General event. */
-#define VSCP_TYPE_PROTOCOL_ENROLL            1 /* Enroll event. */
-#define VSCP_TYPE_PROTOCOL_ENROLL_ACK        2 /* Enroll ack event. */
-#define VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE   3 /* New node on line / Probe. */
-#define VSCP_TYPE_PROTOCOL_PROBE_ACK         4 /* Probe ACK. */
-#define VSCP_TYPE_PROTOCOL_SET_NICKNAME      5 /* Set nickname-ID for node. */
-#define VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED 6 /* Nickname-ID accepted. */
+#define VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE   1 /* New node on line / Probe. */
+#define VSCP_TYPE_PROTOCOL_SET_NICKNAME      2 /* Set nickname-ID for node. */
+#define VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED 3 /* Nickname-ID accepted. */
+#define VSCP_TYPE_PROTOCOL_ENROLL            4 /* Enroll event. */
+#define VSCP_TYPE_PROTOCOL_ENROLL_ACK        5 /* Enroll ack event. */
 #define VSCP_TYPE_PROTOCOL_DROP_NICKNAME     7 /* Drop nickname-ID / Reset Device. */
 #define VSCP_TYPE_PROTOCOL_MAX               8
 
@@ -189,7 +188,6 @@ typedef int (*vscp_event_handler_t)(uint8_t *, uint8_t *, size_t);
 #define VSCP_TYPE_SECURITY_IN_MOTION_DETECTED     35 /* In motion */
 #define VSCP_TYPE_SECURITY_NOT_IN_MOTION_DETECTED 36 /* Not in motion */
 #define VSCP_TYPE_SECURITY_VIBRATION_DETECTED     37 /* Vibration */
-
 #define VSCP_CLASS1_MEASUREMENT (10)                 /* Measurement */
 
 #define VSCP_TYPE_MEASUREMENT_GENERAL          0     /* General event */
