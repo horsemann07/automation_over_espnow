@@ -1,15 +1,26 @@
 
-#include "vscp_helper.h"
-#include "esp_err.h"
-#include <esp_crc.h>
+
+/* standard headers */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
 
-#define TAG               "vscp_helper.c"
+/* esp-idf headers */
+#include "esp_crc.h"
+#include "esp_err.h"
+
+/* vscp headers */
+#include "vscp.h"
+
+static const char *TAG = "vscp_helper.c";
+
 #define CURRENT_TIME_ZONE "IST"
+
+/* Set the system time to the received timestamp */
+static struct timeval timestamp_tv;
 
 /**
  * @brief Get the current date and time in string format.
@@ -19,21 +30,21 @@
  * @param buffer The buffer to store the date and time string. Must be at least 30 bytes.
  * @return esp_err_t Returns ESP_OK on success, ESP_FAIL on failure.
  */
-// static esp_err_t get_current_datetime_in_str(uint8_t buffer[30])
-// {
-//     time_t now = time(NULL);
-//     struct tm timeinfo;
-//     localtime_r(&now, &timeinfo);
-//     // Set timezone
-//     setenv("TZ", CURRENT_TIME_ZONE, 1);
-//     tzset();
-//     if (strftime((char *)buffer, 30, "%Y-%m-%d:%Z:%H:%M:%S", &timeinfo) > 0)
-//     {
-//         return ESP_OK;
-//     }
+static esp_err_t get_current_datetime_in_str(uint8_t buffer[30])
+{
+    time_t now = time(NULL);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    // Set timezone
+    setenv("TZ", CURRENT_TIME_ZONE, 1);
+    tzset();
+    if (strftime((char *)buffer, 30, "%Y-%m-%d:%Z:%H:%M:%S", &timeinfo) > 0)
+    {
+        return ESP_OK;
+    }
 
-//     return ESP_FAIL;
-// }
+    return ESP_FAIL;
+}
 
 /**
  * @brief Get the epoch timestamp.
@@ -79,8 +90,8 @@ esp_err_t helper_convert_to_mqtt_topics(char *buffer, uint16_t *size, char *pjna
     return ESP_OK;
 }
 
-esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t priority, long timestamp,
-    uint8_t guid[6], uint16_t class, uint16_t type, const char *data)
+esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t priority, long timestamp, uint16_t class,
+    uint16_t type, const char *data)
 {
     if (!(buffer) || !(size))
     {
@@ -88,6 +99,9 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
     }
     vscp_mqtt_data_t *vscp = (vscp_mqtt_data_t *)buffer;
 
+    timestamp_tv.tv_sec = timestamp;
+    timestamp_tv.tv_usec = 0;
+    settimeofday(&timestamp_tv, NULL);
     time_t currentTime = time(NULL);               // Get current time
     struct tm *timeInfo = localtime(&currentTime); // Convert to local time
 
@@ -103,7 +117,7 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
 
     for (int i = 0; i < 6; i++)
     {
-        vscp->guid[i] = guid[i];
+        vscp->guid[i] = global_self_guid[i];
     }
     vscp->sizeData = strlen(data);
     vscp->pdata = (uint8_t *)data;
@@ -119,8 +133,8 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
     return ESP_OK;
 }
 
-esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t nickname, uint8_t priority, uint8_t guid[6],
-    uint16_t class, uint16_t type, const char *data, size_t *size)
+esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t priority, uint16_t class, uint16_t type,
+    const char *data, size_t *size)
 {
     if (!(buffer))
     {
@@ -128,14 +142,16 @@ esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t nickname, uint
     }
 
     vscp_data_t *vscp = (vscp_data_t *)buffer;
-    vscp->nickname = nickname;
+
+    vscp->nickname = global_self_nickname;
     vscp->priority = priority;
-    vscp->vscp_class = class;
-    vscp->vscp_type = type;
     for (int i = 0; i < 6; i++)
     {
-        vscp->guid[i] = guid[i];
+        vscp->guid[i] = global_self_guid[i];
     }
+
+    vscp->vscp_class = class;
+    vscp->vscp_type = type;
 
     if (data != NULL)
     {
@@ -147,7 +163,7 @@ esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t nickname, uint
         vscp->sizeData = 0;
         vscp->pdata = (uint8_t *)data;
     }
-    *size = VSCP_TOTAL_DATA_SIZE(vscp->sizeData);
+    *size = VSCP_TOTAL_TRANSMITTING_DATA_SIZE(vscp->sizeData);
 
     // Calculate CRC on the structure fields
     const uint8_t *ptr = (const uint8_t *)&vscp->vscp_class;

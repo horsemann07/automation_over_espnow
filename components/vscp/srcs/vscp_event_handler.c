@@ -1,14 +1,18 @@
 
-#include "sys/queue.h"
+
+/* standard headers */
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/queue.h>
 
+/* esp-idf headers */
 #include "esp_err.h"
 
-#include "event_handler_matrix.h"
+/* vscp headers */
+#include "vscp.h"
 
 /**
  * @brief Structure representing a VSCP class and its corresponding type handler.

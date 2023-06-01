@@ -1,8 +1,37 @@
 
+/*
+STEPS AFTER START UP.
+1. Check Device register or not.( any method retriving stats from NVM. )
+    REGISTER ?
+    NO:
+    1. Register button and interrrupt callback and wait until button pressed.
+    BUTTON PRESSED:
+        1. Initiate espnow security connectin from espnow using default certificate or any company secret key
+        2. After security process, beta/gamma will receive Symmetric key app key which is used for further data
+exchange. and also the nickname which is registeration number of beta/gamma in between now ( 0-15) in future (0-255).
+        3. Saved Symmetric key and nickname in NVM .
+
+    YES:
+    1. Retrive symmetric key and nickname from NVM.
+    2. Initialize Sensor interrupt callback
+    3. Send notification alpha that beta is online.
+    4. Goto in responder mode.
+
+2. If any interrupt happen from sensor
+    1. Get sensor data.
+    2. Prepare message
+    3. Stop reponder mode if it is in.
+    4. Initiate secure connection using espnow initiator
+    5. Send data and wait for acknowledgement or send until receive acknowledgement
+
+/--------------------------------------------------------------------------------/
+*/
+/* freertos headers */
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 
+/* esp-idf headers */
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -13,19 +42,21 @@
 #endif
 #include "cJSON.h"
 #include "esp_wifi.h"
+
+/* espnow headers */
 #include "espnow.h"
 #include "espnow_security.h"
 #include "espnow_security_handshake.h"
 #include "espnow_storage.h"
 #include "espnow_utils.h"
-#include "iot_button.h"
-#include "vscp_helper.h"
 
-/*Include backoff algorithm header for retry logic.*/
+/* iot-button headers */
+#include "iot_button.h"
+
+/* backoff algorithm header.*/
 #include "backoff_algorithm.h"
 
-#include "alpha.h"
-#include "event_handler_matrix.h"
+/* vscp headers */
 #include "vscp.h"
 
 static const char *TAG = "beta.c";
@@ -61,14 +92,8 @@ typedef struct
     vscp_data_t *data;
 } espnow_data_receiver_t;
 
-/* self guid/addr */
-static espnow_addr_t global_self_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-
 /* alpha node guid/addr */
-static espnow_addr_t global_alpha_addr = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-
-/* self nickname */
-static uint8_t global_self_nickname = 0xFF;
+static uint8_t global_alpha_addr[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 static uint8_t g_beta_state = VSCP_TYPE_PROTOCOL_GENERAL;
 
@@ -83,86 +108,9 @@ static struct timeval timestamp_tv;
 static BackoffAlgorithmContext_t g_backoff_reconnect_params;
 
 extern esp_err_t espnow_security_inteface_init(handler_for_data_t handle);
-extern esp_err_t espnow_security_inteface_initiator_connect(uint8_t *addr, size_t addr_num, uint8_t *app_key);
+extern esp_err_t espnow_security_inteface_initiator_connect(espnow_addr_t addr, size_t addr_num, uint8_t *app_key);
 static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void);
-esp_err_t vscp_send_data_over_espnow(const void *data, size_t size);
-/*
-STEPS AFTER START UP.
-1. Check Device register or not.( any method retriving stats from NVM. )
-    REGISTER ?
-    NO:
-    1. Register button and interrrupt callback and wait until button pressed.
-    BUTTON PRESSED:
-        1. Initiate espnow security connectin from espnow using default certificate or any company secret key
-        2. After security process, beta/gamma will receive Symmetric key app key which is used for further data
-exchange. and also the nickname which is registeration number of beta/gamma in between now ( 0-15) in future (0-255).
-        3. Saved Symmetric key and nickname in NVM .
-
-    YES:
-    1. Retrive symmetric key and nickname from NVM.
-    2. Initialize Sensor interrupt callback
-    3. Send notification alpha that beta is online.
-    4. Goto in responder mode.
-
-2. If any interrupt happen from sensor
-    1. Get sensor data.
-    2. Prepare message
-    3. Stop reponder mode if it is in.
-    4. Initiate secure connection using espnow initiator
-    5. Send data and wait for acknowledgement or send until receive acknowledgement
-
-/--------------------------------------------------------------------------------/
-# Pseudo code for beta device workflow
-
-# Step 1: Check Device register or not
-if not is_registered():
-    # Step 2: NO - Register button and interrupt callback
-    register_button_pressed = wait_for_button_press(timeout=10)  # Timeout after 10 seconds
-    if register_button_pressed:
-        # Step 2.1: Initiate ESP-NOW security
-        symmetric_key, nickname = initiate_espnow_security()
-        # Step 2.2: Save symmetric key and nickname in NVM
-        save_to_nvm(symmetric_key, nickname)
-    else:
-        # Handle registration timeout or button not pressed
-        handle_registration_timeout()
-else:
-    # Step 1: YES - Retrieve symmetric key and nickname from NVM
-    symmetric_key, nickname = retrieve_from_nvm()
-
-# Step 3: Initialize Sensor interrupt callback
-initialize_sensor_interrupt_callback()
-
-# Step 4: Send notification to alpha that beta is online
-send_notification_to_alpha()
-
-# Step 5: Go into responder mode
-responder_mode = True
-
-while True:
-    # Step 2: If any interrupt happens from the sensor
-    if interrupt_occurred():
-        # Step 2.1: Get sensor data
-        sensor_data = read_sensor_data()
-        # Step 2.2: Prepare message
-        message = prepare_message(sensor_data)
-        # Step 2.3: Stop responder mode if it is active
-        if responder_mode:
-            stop_responder_mode()
-        # Step 2.4: Initiate secure connection using ESP-NOW initiator
-        success = initiate_secure_connection(symmetric_key)
-        if success:
-            # Step 2.5: Send data and wait for acknowledgement or retry until received
-            send_data_with_acknowledgement(message)
-        else:
-            # Handle failed secure connection
-            handle_failed_connection()
-
-    # Other code and logic for the beta device
-
-    # Sleep or delay for a certain period before repeating the loop
-    sleep(1)
-*/
+esp_err_t vscp_send_data(const void *data, size_t size);
 
 static void button_single_click_cb(void *arg, void *usr_data)
 {
@@ -196,11 +144,11 @@ esp_err_t vscp_register_new_node(void)
     size_t total_size = 0;
 
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
-        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
+        VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
 
-    ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+    ret = vscp_send_data((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
 
     return ret;
 }
@@ -248,11 +196,11 @@ static esp_err_t vscp_nickname_accept_evt_cb(void)
     vscp_data_t vscp_data = { 0 };
     size_t total_size = 0;
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
-        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
+        VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
 
-    esp_err_t ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+    esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
 
     return ret;
 }
@@ -286,11 +234,11 @@ static esp_err_t vscp_enroll_ack_evt_cb(void)
     vscp_data_t vscp_data = { 0 };
     size_t total_size = 0;
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, global_self_nickname, VSCP_PRIORITY_NORMAL,
-        global_self_addr, VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL_ACK, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
+        VSCP_TYPE_PROTOCOL_ENROLL_ACK, NULL, &total_size);
 
-    esp_err_t ret = vscp_send_data_over_espnow((void *)&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data_over_espnow", esp_err_to_name(ret));
+    esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
 
     return ret;
 }
@@ -319,10 +267,14 @@ static esp_err_t vscp_general_meas_evt_cb(uint8_t *src_addr, void *data, size_t 
     {
         return ESP_ERR_NO_MEM;
     }
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_MEASUREMENT,
+        VSCP_TYPE_MEASUREMENT_TEMPERATURE, NULL, &total_size);
 
-    esp_err_t ret = vscp_send_data_over_espnow((const void *)json_str, strlen(json_str));
     cJSON_Delete(pJson);
-    return ret;
+    return ESP_OK;
 }
 
 /**
@@ -458,7 +410,7 @@ static esp_err_t vscp_data_receive_cb(uint8_t *src_addr, void *data, size_t size
     return ret;
 }
 
-esp_err_t vscp_send_data_over_espnow(const void *data, size_t size)
+esp_err_t vscp_send_data(const void *data, size_t size)
 {
     ESP_PARAM_CHECK(data);
 
@@ -614,7 +566,7 @@ esp_err_t vscp_init_beta_app(void)
 {
     esp_err_t ret = ESP_OK;
     /* get self mac addr */
-    esp_wifi_get_mac(WIFI_IF_STA, global_self_addr);
+    esp_wifi_get_mac(WIFI_IF_STA, global_self_guid);
 
     // #ifdef CONFIG_USE_BUTTON_ENABLE
     ret = init_register_button();
