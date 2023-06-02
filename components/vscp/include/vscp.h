@@ -66,9 +66,10 @@ typedef struct
     /* ----- CRC should be calculated from here to end + data block ----  */
     uint8_t nickname;     /* Node nickname */
     uint8_t priority : 4; /* 4-bit field representing the priority of the package */
-    uint8_t : 4;
-    uint16_t vscp_class;  /* VSCP class */
-    uint16_t vscp_type;   /* VSCP type */
+    uint8_t msg_type : 1; /* 1-bit field to indicate message type i.e REQUEST or REQPONSE*/
+    uint8_t : 3;          /* Reserved */
+    uint8_t vscp_class;   /* VSCP class */
+    uint8_t vscp_type;    /* VSCP type */
     uint8_t guid[6];      /* Node globally unique id MSB(0) -> LSB(15) */
     uint16_t sizeData;    /* Number of valid data bytes */
     uint8_t *pdata;       /* Pointer to data. Max 512 bytes */
@@ -115,7 +116,7 @@ typedef struct
  * @param[in] size Size of the data payload.
  * @return ESP_OK if the event handling is successful, an error code otherwise.
  */
-typedef esp_err_t (*vscp_event_handler_t)(uint8_t *src_addr, uint8_t *data, size_t size);
+typedef esp_err_t (*vscp_event_handler_t)(uint8_t *src_addr, void *data, size_t size);
 
 /**
  * @brief Maximum data transport protocol can send in a single packet.
@@ -140,10 +141,24 @@ typedef esp_err_t (*vscp_event_handler_t)(uint8_t *src_addr, uint8_t *data, size
 #define VSCP_TOTAL_TRANSMITTING_DATA_SIZE(pdata_size) (sizeof(vscp_data_t) + (pdata_size))
 
 /*--------------------------------------------------------------------------------------------------*/
-#define VSCP_LEVEL1_MAXDATA (200)
-#define VSCP_LEVEL2_MAXDATA (512)
+/**
+ * @brief VSCP message type: Request
+ */
+#define VSCP_MSG_TYPE_REQUEST (0)
 
+/**
+ * @brief VSCP message type: Response
+ */
+#define VSCP_MSG_TYPE_RESPONSE (1)
+
+/**
+ * @brief VSCP Level 1
+ */
 #define VSCP_LEVEL1 (0x00)
+
+/**
+ * @brief VSCP Level 2
+ */
 #define VSCP_LEVEL2 (0x01)
 
 /* Priorities in the header byte as OR'ed values */
@@ -181,7 +196,7 @@ uint8_t global_self_guid[6];
  * This function prepares a VSCP nodes message in the specified buffer.
  *
  * @param[out] buffer Pointer to the buffer to store the prepared message.
- * @param[in] is_ack Flag indicating if the message is an acknowledgment.
+ * @param[in] msg_type Flag indicating if the message is an request or response type.
  * @param[in] priority Priority of the message.
  * @param[in] class VSCP class of the message.
  * @param[in] type VSCP type of the message.
@@ -189,8 +204,8 @@ uint8_t global_self_guid[6];
  * @param[out] size Pointer to store the size of the prepared message.
  * @return ESP_OK if the message preparation is successful, an error code otherwise.
  */
-esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t priority, uint16_t class, uint16_t type,
-    const char *data, size_t *size);
+esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t msg_type, uint8_t priority, uint16_t class,
+    uint16_t type, const char *data, size_t *size);
 
 /**
  * @brief Prepare VSCP MQTT message.

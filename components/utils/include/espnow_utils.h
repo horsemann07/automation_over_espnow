@@ -101,6 +101,15 @@ typedef struct espnow_time_config {
         } \
     } while(0)
 
+
+#define ESP_ERROR_PRINT(con, err, format, ...) do { \
+        if (con) { \
+            if(*format != '\0') \
+                ESP_LOGE(TAG, "[%s, %d] <%s> " format, __func__, __LINE__,esp_err_to_name(err), ##__VA_ARGS__); \
+            return err; \
+        } \
+    } while(0)
+
 #define ESP_ALLOC_CHECK(ptr) do { \
         if (!(ptr)) { \
             ESP_LOGD(TAG, "[%s, %d]: <ESP_ERR_NO_MEM>", __func__, __LINE__); \

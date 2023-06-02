@@ -1,16 +1,58 @@
 menu "WIFI_MANAGER"
 
-    config WIFI_MANAGER_TASK_SIZE
+    config WIFIM_MANAGER_TASK_SIZE
         int "wifi manager task stack size"
         default 2048
         help
             increase the size when stack overflow.
 
-    config WIFI_MANAGER_TASK_PRIORITY
+    config WIFIM_MANAGER_TASK_PRIORITY
         int "wifi manager task priority"
         range 0 5
         default 3
         help
             increase the priority as per requirement.
+    choice WIFIM_PROV_TRANSPORT
+        bool "Provisioning Transport"
+        default WIFIM_PROV_TRANSPORT_SOFTAP if IDF_TARGET_ESP32S2
+        default WIFIM_PROV_TRANSPORT_BLE
+        help
+            Wi-Fi provisioning component offers both, SoftAP and BLE transports. Choose any one.
+
+        config WIFIM_PROV_TRANSPORT_BLE
+            bool "BLE"
+            select BT_ENABLED
+            depends on !IDF_TARGET_ESP32S2
+        config WIFIM_PROV_TRANSPORT_SOFTAP
+            bool "Soft AP"
+    endchoice
+
+    config WIFIM_PROV_TRANSPORT
+        int
+        default 1 if WIFIM_PROV_TRANSPORT_BLE
+        default 2 if WIFIM_PROV_TRANSPORT_SOFTAP
+
+    config WIFIM_PROV_MGR_MAX_RETRY_CNT
+        int
+        default 5
+        prompt "Max retries before reseting provisioning state machine"
+        help
+            Set the Maximum retry to avoid reconnecting to an inexistent AP or if credentials
+            are misconfigured. Provisioned credentials are erased and internal state machine
+            is reset after this threshold is reached.
+
+    config WIFIM_PROV_SHOW_QR
+        bool "Show provisioning QR code"
+        default y
+        help
+            Show the QR code for provisioning.
+
+    config WIFIM_PROV_USING_BLUEDROID
+        bool
+        depends on (BT_BLUEDROID_ENABLED && (IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3))
+        select BT_BLE_42_FEATURES_SUPPORTED
+        default y
+        help
+            This enables BLE 4.2 features for Bluedroid.
 
 endmenu

@@ -144,8 +144,8 @@ esp_err_t vscp_register_new_node(void)
     size_t total_size = 0;
 
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
-        VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_REQUEST, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE, NULL, &total_size);
 
     ret = vscp_send_data((void *)&vscp_data, total_size);
     ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
@@ -196,8 +196,8 @@ static esp_err_t vscp_nickname_accept_evt_cb(void)
     vscp_data_t vscp_data = { 0 };
     size_t total_size = 0;
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
-        VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
 
     esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
     ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
@@ -234,8 +234,8 @@ static esp_err_t vscp_enroll_ack_evt_cb(void)
     vscp_data_t vscp_data = { 0 };
     size_t total_size = 0;
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_PROTOCOL,
-        VSCP_TYPE_PROTOCOL_ENROLL_ACK, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_ENROLL_ACK, NULL, &total_size);
 
     esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
     ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
@@ -270,8 +270,8 @@ static esp_err_t vscp_general_meas_evt_cb(uint8_t *src_addr, void *data, size_t 
     vscp_data_t vscp_data = { 0 };
     size_t total_size = 0;
     // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_PRIORITY_NORMAL, VSCP_CLASS1_MEASUREMENT,
-        VSCP_TYPE_MEASUREMENT_TEMPERATURE, NULL, &total_size);
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_MEASUREMENT, VSCP_TYPE_MEASUREMENT_TEMPERATURE, NULL, &total_size);
 
     cJSON_Delete(pJson);
     return ESP_OK;

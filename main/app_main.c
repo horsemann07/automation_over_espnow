@@ -53,44 +53,55 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
 
-    ret = wifim_wifi_on();
+    ret = wifim_prov_init();
     if (ret != ESP_OK)
     {
-        return;
+        ESP_LOGE(TAG, "wifim_prov_init %s>", esp_err_to_name(ret));
     }
 
-    wifi_config_t wifi_config;
-    memset(&wifi_config, 0, sizeof(wifi_config_t));
+    ret = wifim_start_provisioning();
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "wifim_start_provisioning %s>", esp_err_to_name(ret));
+    }
+    // ret = wifim_wifi_on();
+    // if (ret != ESP_OK)
+    // {
+    //     return;
+    // }
 
-    // Copy the SSID and password to the wifi_config structure
-    strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
-    wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0'; // Ensure null-terminated string
+    // wifi_config_t wifi_config;
+    // memset(&wifi_config, 0, sizeof(wifi_config_t));
 
-    strncpy((char *)wifi_config.sta.password, WIFI_PASSKEY, sizeof(wifi_config.sta.password) - 1);
-    wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0'; // Ensure null-terminated string
-    wifi_config.sta.channel = 0;
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
-    ret = wifim_connect_ap(&wifi_config);
-    if (ret == ESP_OK)
-    {
-        // Connection successful
-        ESP_LOGI(TAG, "Connection successful");
-    }
-    else
-    {
-        // Connection failed, handle the error
-        ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
-    }
-    ret = vscp_init_beta_app();
-    if (ret == ESP_OK)
-    {
-        // Connection successful
-        ESP_LOGI(TAG, "Connection successful");
-    }
-    else
-    {
-        // Connection failed, handle the error
-        ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
-    }
+    // // Copy the SSID and password to the wifi_config structure
+    // strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
+    // wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0'; // Ensure null-terminated string
+
+    // strncpy((char *)wifi_config.sta.password, WIFI_PASSKEY, sizeof(wifi_config.sta.password) - 1);
+    // wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0'; // Ensure null-terminated string
+    // wifi_config.sta.channel = 0;
+    // wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+    // ret = wifim_connect_ap(&wifi_config);
+    // if (ret == ESP_OK)
+    // {
+    //     // Connection successful
+    //     ESP_LOGI(TAG, "Connection successful");
+    // }
+    // else
+    // {
+    //     // Connection failed, handle the error
+    //     ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
+    // }
+    // ret = vscp_init_beta_app();
+    // if (ret == ESP_OK)
+    // {
+    //     // Connection successful
+    //     ESP_LOGI(TAG, "Connection successful");
+    // }
+    // else
+    // {
+    //     // Connection failed, handle the error
+    //     ESP_LOGI(TAG, "Connection failed %s", esp_err_to_name(ret));
+    // }
     return;
 }

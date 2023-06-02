@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <sys/time.h>
+#include <time.h>
 
 /* esp-idf headers */
 #include "esp_crc.h"
@@ -112,6 +112,8 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
     vscp->hour = timeInfo->tm_hour;
     vscp->minute = timeInfo->tm_min;
     vscp->second = timeInfo->tm_sec;
+
+    // vscp->msg_type = msg_type;
     vscp->vscp_class = class;
     vscp->vscp_type = type;
 
@@ -119,6 +121,7 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
     {
         vscp->guid[i] = global_self_guid[i];
     }
+
     vscp->sizeData = strlen(data);
     vscp->pdata = (uint8_t *)data;
 
@@ -133,8 +136,8 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
     return ESP_OK;
 }
 
-esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t priority, uint16_t class, uint16_t type,
-    const char *data, size_t *size)
+esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t msg_type, uint8_t priority, uint16_t class,
+    uint16_t type, const char *data, size_t *size)
 {
     if (!(buffer))
     {
@@ -150,6 +153,7 @@ esp_err_t helper_prepare_vscp_nodes_message(void *buffer, uint8_t priority, uint
         vscp->guid[i] = global_self_guid[i];
     }
 
+    vscp->msg_type = msg_type;
     vscp->vscp_class = class;
     vscp->vscp_type = type;
 

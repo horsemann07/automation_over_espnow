@@ -90,15 +90,15 @@ extern "C" {
 /* The event group allows multiple bits for each event, but we only care about two events:
  * - we are connected to the AP with an IP
  * - we failed to connect after the maximum amount of retries */
-#define CONNECTED_BIT     (BIT0)
-#define DISCONNECTED_BIT  (BIT1)
-#define STARTED_BIT       (BIT2)
-#define STOPPED_BIT       (BIT3)
-#define AUTH_CHANGE_BIT   (BIT4)
-#define AP_STARTED_BIT    (BIT4)
-#define AP_STOPPED_BIT    (BIT5)
-#define ESPTOUCH_DONE_BIT (BIT6)
-
+#define WIFI_CONNECTED_BIT    (BIT0)
+#define WIFI_DISCONNECTED_BIT (BIT1)
+#define WIFI_STARTED_BIT      (BIT2)
+#define WIFI_STOPPED_BIT      (BIT3)
+#define AUTH_CHANGE_BIT       (BIT4)
+#define AP_STARTED_BIT        (BIT4)
+#define AP_STOPPED_BIT        (BIT5)
+#define WIFI_PROV_START_BIT   (BIT6)
+#define WIFI_PROV_STOP_BIT    (BIT6)
 /**
  * @brief Wi-Fi event handler definition.
  *
@@ -477,6 +477,56 @@ esp_err_t wifim_get_rssi(int *rssi);
  * @return esp_err_t Returns ESP_OK if the callback registration is successful, or an error code if it fails.
  */
 esp_err_t wifim_register_event_cb(wifi_event_t event_type, wifi_event_handler_t handler);
+
+/*-------------------------- WIFI PROV CODE -------------------*/
+/**
+ * @brief Disconnects from the Wi-Fi network.
+ *
+ * @return ESP_OK on success, or an error code if the disconnection fails.
+ */
+esp_err_t wifi_disconnect_wifi(void);
+
+/**
+ * @brief Reconnects to the Wi-Fi network.
+ *
+ * @return ESP_OK on success, or an error code if the reconnection fails.
+ */
+esp_err_t wifim_reconnect_wifi(void);
+
+/**
+ * @brief Resets the Wi-Fi manager.
+ *
+ * @return ESP_OK on success, or an error code if the reset fails.
+ */
+esp_err_t wifim_reset(void);
+
+/**
+ * @brief Restarts the reprovisioning process.
+ *
+ * @return ESP_OK on success, or an error code if the restart fails.
+ */
+esp_err_t wifim_restart_reprovisioning(void);
+
+/**
+ * @brief Starts the Wi-Fi provisioning process.
+ *
+ * @return ESP_OK on success, or an error code if the provisioning fails to start.
+ */
+esp_err_t wifim_start_provisioning(void);
+
+/**
+ * @brief Deinitializes the Wi-Fi provisioning manager.
+ *
+ * @return ESP_OK on success, or an error code if the deinitialization fails.
+ */
+esp_err_t wifi_prov_deinit(void);
+
+/**
+ * @brief Initializes the Wi-Fi provisioning manager.
+ *
+ * @return ESP_OK on success, or an error code if the initialization fails.
+ */
+esp_err_t wifim_prov_init(void);
 
 #ifdef __cplusplus
 }
