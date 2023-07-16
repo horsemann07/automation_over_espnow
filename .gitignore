@@ -58,3 +58,9 @@ build
 ./vscode/*
 ./temp/
 ./build/*
+
+#eclipse 
+*.cproject
+*.project
+*./settings/
+*.settings/

@@ -235,42 +235,16 @@ esp_err_t helper_prepare_vscp_mqtt_message(void *buffer, size_t *size, uint8_t p
 esp_err_t helper_verify_crc(const vscp_data_t *data);
 
 /************************** event handlers api *****************************/
+esp_err_t vscp_evnt_handler_register_event(uint8_t class, vscp_event_handler_t class_handler, uint8_t type,
+    vscp_event_handler_t type_handler);
 
-/**
- * @brief Registers an event handler for a specific VSCP class and type.
- *
- * @param class    The VSCP class.
- * @param type     The VSCP type.
- * @param callback The callback function to be registered.
- * @return         ESP_OK on success, or an error code if registration fails.
- */
-esp_err_t vscp_register_event_handler(uint16_t class, uint16_t type, vscp_event_handler_t callback);
+esp_err_t vscp_evnt_handler_unregister_event(uint8_t class);
+vscp_event_handler_t vscp_evnt_handler_get_event_handler_by_class(uint8_t class);
+vscp_event_handler_t vscp_evnt_handler_get_cb_by_type(uint8_t class, uint8_t type);
+size_t vscp_evnt_handler_get_num_classes(void);
+size_t vscp_evnt_handler_get_num_types(uint8_t class);
+esp_err_t vscp_evnt_handler_init(void);
 
-/**
- * @brief Unregisters the event handler for a specific VSCP class and type.
- *
- * @param class The VSCP class.
- * @param type  The VSCP type.
- * @return      ESP_OK on success, or an error code if unregistration fails.
- */
-esp_err_t vscp_unregister_event_handler(uint16_t class, uint16_t type);
-
-/**
- * @brief Retrieves the event handler matrix for a specific VSCP class and type.
- *
- * @param class  The VSCP class.
- * @param type   The VSCP type.
- * @param matrix Pointer to a variable that will hold the event handler matrix.
- * @return       ESP_OK if the matrix is found, or ESP_ERR_NOT_FOUND if not found.
- */
-esp_err_t vscp_get_event_handler(uint16_t class, uint16_t type, vscp_event_handler_t *callback);
-
-/**
- * @brief Get the number of registered event handlers.
- *
- * @return The number of registered event handlers.
- */
-size_t vscp_get_num_register_event_handler(void);
 
 #ifdef __cplusplus
 }

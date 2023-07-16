@@ -3,7 +3,7 @@ set(srcs "")
 set(requires "")
 set(include_dirs "")
 
-list(APPEND srcs            "srcs/vscp_helper.c" "srcs/vscp_event_handler.c")
+list(APPEND srcs            "srcs/vscp_helper.c" "srcs/vscp_event_handler.c" "srcs/vscp_led.c")
 list(APPEND include_dirs    "include" )
 
 list(APPEND requires "spi_flash" 

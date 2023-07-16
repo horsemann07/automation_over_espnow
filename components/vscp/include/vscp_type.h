@@ -3,6 +3,8 @@
 #ifndef __VSCP_TYPE__
 #define __VSCP_TYPE__
 
+#define VSCP_TYPE_MAX 255
+
 // #define VSCP_CLASS1_PROTOCOL             (0)  /* VSCP Protocol Functionality */
 
 #define VSCP_TYPE_PROTOCOL_GENERAL           0 /* General event. */
@@ -12,7 +14,8 @@
 #define VSCP_TYPE_PROTOCOL_ENROLL            4 /* Enroll event. */
 #define VSCP_TYPE_PROTOCOL_ENROLL_ACK        5 /* Enroll ack event. */
 #define VSCP_TYPE_PROTOCOL_DROP_NICKNAME     7 /* Drop nickname-ID / Reset Device. */
-#define VSCP_TYPE_PROTOCOL_MAX               8
+#define VSCP_TYPE_PROTOCOL_DROP_NICKNAME_ACK 8
+#define VSCP_TYPE_PROTOCOL_MAX               9
 
 // #define VSCP_CLASS1_SECURITY (2)                       /* Security */
 
@@ -75,28 +78,28 @@
 #define VSCP_TYPE_INFORMATION_NODE_HEARTBEAT  9  /* Node Heartbeat */
 #define VSCP_TYPE_INFORMATION_BELOW_LIMIT     10 /* Below limit */
 #define VSCP_TYPE_INFORMATION_ABOVE_LIMIT     11 /* Above limit */
-#define VSCP_TYPE_INFORMATION_STOP            24 /* Stop */
-#define VSCP_TYPE_INFORMATION_START           25 /* Start */
-#define VSCP_TYPE_INFORMATION_RESET_COMPLETED 26 /* ResetCompleted */
+#define VSCP_TYPE_INFORMATION_STOP            12 /* Stop */
+#define VSCP_TYPE_INFORMATION_START           13 /* Start */
+#define VSCP_TYPE_INFORMATION_RESET_COMPLETED 14 /* ResetCompleted */
 
 // #define VSCP_CLASS1_CONTROL (30)                     /* Control */
 
-#define VSCP_TYPE_CONTROL_ALL_LAMPS             2  /* (All) Lamp(s) on/off */
-#define VSCP_TYPE_CONTROL_OPEN                  3  /* Open */
-#define VSCP_TYPE_CONTROL_CLOSE                 4  /* Close */
-#define VSCP_TYPE_CONTROL_TURNON                5  /* TurnOn */
-#define VSCP_TYPE_CONTROL_TURNOFF               6  /* TurnOff */
-#define VSCP_TYPE_CONTROL_RESET                 9  /* Reset */
-#define VSCP_TYPE_CONTROL_DIM_LAMPS             20 /* Dim lamp(s) */
-#define VSCP_TYPE_CONTROL_CHANGE_CHANNEL        21 /* Change Channel */
-#define VSCP_TYPE_CONTROL_CHANGE_LEVEL          22 /* Change Level */
-#define VSCP_TYPE_CONTROL_TIME_SYNC             26 /* Time Sync */
-#define VSCP_TYPE_CONTROL_LOCK                  42 /* Lock */
-#define VSCP_TYPE_CONTROL_UNLOCK                43 /* Unlock */
-#define VSCP_TYPE_CONTROL_SET_SECURITY_LEVEL    47 /* Set security level */
-#define VSCP_TYPE_CONTROL_SET_SECURITY_PIN      48 /* Set security pin */
-#define VSCP_TYPE_CONTROL_SET_SECURITY_PASSWORD 49 /* Set security password */
-#define VSCP_TYPE_CONTROL_SET_SECURITY_TOKEN    50 /* Set security token */
+#define VSCP_TYPE_CONTROL_ALL_LAMPS             1  /* (All) Lamp(s) on/off */
+#define VSCP_TYPE_CONTROL_OPEN                  2  /* Open */
+#define VSCP_TYPE_CONTROL_CLOSE                 3  /* Close */
+#define VSCP_TYPE_CONTROL_TURNON                4  /* TurnOn */
+#define VSCP_TYPE_CONTROL_TURNOFF               5  /* TurnOff */
+#define VSCP_TYPE_CONTROL_RESET                 6  /* Reset */
+#define VSCP_TYPE_CONTROL_DIM_LAMPS             7  /* Dim lamp(s) */
+#define VSCP_TYPE_CONTROL_CHANGE_CHANNEL        8  /* Change Channel */
+#define VSCP_TYPE_CONTROL_CHANGE_LEVEL          9  /* Change Level */
+#define VSCP_TYPE_CONTROL_TIME_SYNC             10 /* Time Sync */
+#define VSCP_TYPE_CONTROL_LOCK                  11 /* Lock */
+#define VSCP_TYPE_CONTROL_UNLOCK                12 /* Unlock */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_LEVEL    13 /* Set security level */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_PIN      14 /* Set security pin */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_PASSWORD 15 /* Set security password */
+#define VSCP_TYPE_CONTROL_SET_SECURITY_TOKEN    16 /* Set security token */
 
 // #define VSCP_CLASS1_DIAGNOSTIC (506)                 /* Diagnostic */
 
