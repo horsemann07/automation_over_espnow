@@ -72,13 +72,12 @@ static const char *TAG = "alpha.c";
  */
 #define VSCP_MAX_WAIT_TIMEOUT_MS (pdTICKS_TO_MS(5000))
 
-#define ESP_TIMER_TIMEOUT_MU (30 * 60 * 1000 * 1000) ULL
+#define ESP_TIMER_TIMEOUT_MU (30U * 60U * 1000U * 1000U)
 /**
  * @brief Structure representing received ESP-NOW data.
  *
  */
-typedef struct
-{
+typedef struct {
     espnow_addr_t addr;
     size_t size;
     vscp_data_t *data;
@@ -121,6 +120,8 @@ TaskHandle_t alpha_task_handle = NULL;
 
 esp_timer_handle_t esp_periodic_timer;
 
+esp_err_t vscp_send_data(const void *data, size_t size);
+
 /**
  * @brief Event callback function for VSCP_TYPE_PROTOCOL_SET_NICKNAME event.
  *
@@ -144,8 +145,7 @@ static esp_err_t vscp_nickname_set_evt_cb(uint8_t *src_addr, void *data, size_t 
     cJSON *pJsonObj = cJSON_CreateObject();
     ESP_ALLOC_CHECK(pJsonObj);
 
-    if (++g_cluster_size == UINT8_MAX)
-    {
+    if (++g_cluster_size == UINT8_MAX) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     cJSON_AddNumberToObject(pJsonObj, "nickname", g_cluster_size);
@@ -211,7 +211,7 @@ static esp_err_t vscp_nickname_dropped_evnt_cb(uint8_t *src_addr, void *data, si
     return ret;
 }
 
-static esp_err_t vscp_alpa_class_protocol_evnt(uint8_t *src_addr, void *data, size_t size)
+static esp_err_t vscp_protocol_class_evnt(uint8_t *src_addr, void *data, size_t size)
 {
     ESP_PARAM_CHECK(src_addr);
     ESP_PARAM_CHECK(data);
@@ -219,8 +219,7 @@ static esp_err_t vscp_alpa_class_protocol_evnt(uint8_t *src_addr, void *data, si
 
     esp_err_t ret;
     vscp_data_t *vscp = (vscp_data_t *)data;
-    switch (vscp->vscp_type)
-    {
+    switch (vscp->vscp_type) {
         case VSCP_TYPE_PROTOCOL_NEW_NODE_ONLINE:
         case VSCP_TYPE_PROTOCOL_SET_NICKNAME:
             ret = vscp_nickname_set_evt_cb(src_addr, (void *)vscp, size);
@@ -234,7 +233,6 @@ static esp_err_t vscp_alpa_class_protocol_evnt(uint8_t *src_addr, void *data, si
             break;
 
         case VSCP_TYPE_PROTOCOL_DROP_NICKNAME:
-        case VSCP_TYPE_PROTOCOL_DROP_NICKNAME_ACK:
             ret = vscp_nickname_dropped_evnt_cb(src_addr, (void *)vscp, size);
             ESP_ERROR_RETURN(ret != ESP_OK, ret, "vscp_nickname_dropped_evnt_cb <%s>", esp_err_to_name(ret));
             break;
@@ -256,6 +254,11 @@ static void button_single_click_cb(void *arg, void *usr_data)
     ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
 }
 
+static void button_double_click_cb(void *arg, void *usr_data)
+{
+    ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
+}
+
 static void button_long_pressed_cb(void *arg, void *usr_data)
 {
     ESP_LOGI(TAG, "BUTTON_LONG_PRESS_HOLD");
@@ -263,8 +266,22 @@ static void button_long_pressed_cb(void *arg, void *usr_data)
 
 static esp_err_t vscp_is_node_register(void)
 {
-    /* return ESP_OK if register */
-    return ESP_OK;
+    nvs_handle_t nvs_handle;
+    esp_err_t ret = nvs_open(STORAGE_NVS, NVS_READONLY, &nvs_handle);
+
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    uint8_t status = 0;
+    ret = nvs_get_u8(nvs_handle, ENROL_STATUS_NVS, &status);
+
+    nvs_close(nvs_handle);
+
+    if (ret == ESP_OK && status == 1) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
 
 /**
@@ -289,17 +306,14 @@ static esp_err_t vscp_data_receive_cb(uint8_t *src_addr, void *data, size_t size
     ESP_PARAM_CHECK(rx_ctrl);
     esp_err_t ret = ESP_FAIL;
     /* Wait for previous received message should processed */
-    if (xSemaphoreTake(g_vscp_recv_sem, VSCP_MAX_WAIT_TIMEOUT_MS * 4) == pdPASS)
-    {
+    if (xSemaphoreTake(g_vscp_recv_sem, VSCP_MAX_WAIT_TIMEOUT_MS * 4) == pdPASS) {
         espnow_data_receiver_t vscp_recv_data = { 0 };
 
         memcpy(&vscp_recv_data.addr, src_addr, 6);
-        if (!vscp_recv_data.data)
-        {
+        if (!vscp_recv_data.data) {
             return ESP_ERR_NO_MEM; // Memory allocation failed
         }
-        if (xQueueSend(g_vscp_recv_queue, (void *)&vscp_recv_data, VSCP_MAX_WAIT_TIMEOUT_MS) != pdFAIL)
-        {
+        if (xQueueSend(g_vscp_recv_queue, (void *)&vscp_recv_data, VSCP_MAX_WAIT_TIMEOUT_MS) != pdFAIL) {
             ret = ESP_OK; // Data successfully sent to the queue
         }
     }
@@ -313,13 +327,11 @@ static void vscp_recv_task(void *arg)
     g_vscp_recv_queue = xQueueCreate(CONFIG_VSCP_RECV_QUEUE_SIZE, sizeof(espnow_data_receiver_t));
     ESP_ERROR_GOTO(!g_vscp_recv_queue, EXIT, "failed to create vscp receive queue.");
 
-    for (;;)
-    {
+    for (;;) {
         espnow_data_receiver_t espnow_recv = { 0 };
         vscp_event_handler_t evt_handler = NULL;
 
-        if (xQueueReceive(g_vscp_recv_queue, &espnow_recv, portMAX_DELAY))
-        {
+        if (xQueueReceive(g_vscp_recv_queue, &espnow_recv, portMAX_DELAY)) {
             vscp_data_t *data = (vscp_data_t *)espnow_recv.data;
             /* first verify crc */
             ret = helper_verify_crc((const vscp_data_t *)data);
@@ -330,11 +342,9 @@ static void vscp_recv_task(void *arg)
             ESP_ERROR_GOTO(!evt_handler, OUTLOOP, "event handler not register for class %d", data->vscp_class);
 
             /* call event handler */
-            if (evt_handler)
-            {
+            if (evt_handler) {
                 ret = evt_handler((uint8_t *)&espnow_recv.addr, (void *)espnow_recv.data, espnow_recv.size);
-                if (ret != ESP_OK)
-                {
+                if (ret != ESP_OK) {
                     ESP_LOGE(TAG, "evt_handler of class<%d> type<%d>, <%s>", data->vscp_class, data->vscp_type,
                         esp_err_to_name(ret));
                 }
@@ -348,8 +358,7 @@ static void vscp_recv_task(void *arg)
 EXIT:
     xSemaphoreGive(g_vscp_recv_sem);
 
-    if (g_vscp_recv_queue)
-    {
+    if (g_vscp_recv_queue) {
         vQueueDelete(g_vscp_recv_queue);
         g_vscp_recv_queue = NULL;
     }
@@ -369,8 +378,7 @@ static esp_err_t init_register_button(void)
         },
     };
     button_handle_t gpio_btn = iot_button_create(&gpio_btn_cfg);
-    if (NULL == gpio_btn)
-    {
+    if (NULL == gpio_btn) {
         ESP_LOGE(TAG, "Button create failed");
     }
 
@@ -392,24 +400,19 @@ esp_err_t vscp_alpha_start_responder(void)
     /* Initialize reconnect attempts and interval */
     g_backoff_reconnect_params.attemptsDone = 0;
 
-    do
-    {
+    do {
         ret = espnow_security_inteface_responder_start();
 
-        if (ret != ESP_OK)
-        {
+        if (ret != ESP_OK) {
             /* Generate a random number and get back-off value (in milliseconds)
              * for the next connection retry. */
             backoffAlgStatus
                 = BackoffAlgorithm_GetNextBackoff(&g_backoff_reconnect_params, (uint32_t)rand(), &nextRetryBackOff);
 
-            if (backoffAlgStatus == BackoffAlgorithmRetriesExhausted)
-            {
+            if (backoffAlgStatus == BackoffAlgorithmRetriesExhausted) {
                 ESP_LOGE(TAG, "Connection to the broker failed, all attempts exhausted.");
                 ret = ESP_FAIL;
-            }
-            else if (backoffAlgStatus == BackoffAlgorithmSuccess)
-            {
+            } else if (backoffAlgStatus == BackoffAlgorithmSuccess) {
                 ESP_LOGW(TAG, "Connection to the broker failed.");
                 vTaskDelay(pdMS_TO_TICKS(nextRetryBackOff));
 
@@ -417,15 +420,13 @@ esp_err_t vscp_alpha_start_responder(void)
                     CONNECTION_RETRY_MAX_ATTEMPTS, (unsigned short)nextRetryBackOff);
             }
         }
-    }
-    while ((ret != ESP_OK) && (backoffAlgStatus == BackoffAlgorithmSuccess));
+    } while ((ret != ESP_OK) && (backoffAlgStatus == BackoffAlgorithmSuccess));
 }
 
 static esp_err_t alpha_start_mqtt_manager(void)
 {
     esp_err_t ret = esp_timer_restart(esp_periodic_timer, ESP_TIMER_TIMEOUT_MU);
-    if (ret != ESP_OK)
-    {
+    if (ret != ESP_OK) {
         ESP_LOGW(TAG, "esp_timer_restart <%d:%s>", __LINE__, (ret));
     }
 
@@ -436,23 +437,20 @@ static esp_err_t alpha_start_mqtt_manager(void)
 static esp_err_t vscp_alpha_start_level2_connection(void)
 {
     esp_err_t ret = wifim_prov_init();
-    if (ret != ESP_OK)
-    {
+    if (ret != ESP_OK) {
         // skipped mqtt connection call
         g_current_alpha_state = ALPHA_STATE_ESPNOW;
         return ret;
     }
 
     ret = wifim_start_provisioning();
-    if (ret != ESP_OK)
-    {
+    if (ret != ESP_OK) {
         // skipped mqtt connection call
         g_current_alpha_state = ALPHA_STATE_ESPNOW;
         return ret;
     }
     ret = alpha_start_mqtt_manager();
-    if (ret != ESP_OK)
-    {
+    if (ret != ESP_OK) {
         // failed to connect mqtt manager will try later
         return ret;
     }
@@ -463,28 +461,20 @@ static void vscp_alpha_start(void *parameters)
     (void)parameters;
     esp_err_t ret = ESP_OK;
 
-    for (;;)
-    {
-        switch (g_current_alpha_state)
-        {
+    for (;;) {
+        switch (g_current_alpha_state) {
             case ALPHA_STATE_WIFI_PROV:
                 ret = wifim_prov_init();
-                if (ret == ESP_OK)
-                {
+                if (ret == ESP_OK) {
                     ret = wifim_start_provisioning();
-                    if (ret != ESP_OK)
-                    {
+                    if (ret != ESP_OK) {
                         wifi_prov_deinit();
                         // skipped mqtt connection call
                         g_current_alpha_state = ALPHA_STATE_ESPNOW;
-                    }
-                    else
-                    {
+                    } else {
                         g_current_alpha_state = ALPHA_STATE_MQTT_MNGR;
                     }
-                }
-                else
-                {
+                } else {
                     // skipped mqtt connection call
                     g_current_alpha_state = ALPHA_STATE_ESPNOW;
                 }
@@ -526,12 +516,10 @@ esp_err_t vscp_alpha_init_app(void)
 
     esp_err_t ret = vscp_alpha_start_level2_connection();
 
-    if (ret != ESP_OK)
-    {
+    if (ret != ESP_OK) {
         g_current_alpha_state = ALPHA_STATE_WIFI_PROV;
     }
-    if (!alpha_task_handle)
-    {
+    if (!alpha_task_handle) {
         xTaskCreate(&vscp_alpha_start, "alpha", 1024 * 2, NULL, &alpha_task_handle);
     }
 

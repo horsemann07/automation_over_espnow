@@ -117,7 +117,7 @@ esp_err_t vscp_evnt_handler_unregister_event(uint8_t class)
     return ESP_OK;
 }
 
-vscp_event_handler_t vscp_evnt_handler_get_event_handler_by_class(uint8_t class)
+vscp_event_handler_t vscp_evnt_handler_get_class_handler(uint8_t class)
 {
     vscp_class_t *class_entry = find_class(class);
     if (class_entry != NULL)

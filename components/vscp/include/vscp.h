@@ -239,7 +239,7 @@ esp_err_t vscp_evnt_handler_register_event(uint8_t class, vscp_event_handler_t c
     vscp_event_handler_t type_handler);
 
 esp_err_t vscp_evnt_handler_unregister_event(uint8_t class);
-vscp_event_handler_t vscp_evnt_handler_get_event_handler_by_class(uint8_t class);
+vscp_event_handler_t vscp_evnt_handler_get_class_handler(uint8_t class);
 vscp_event_handler_t vscp_evnt_handler_get_cb_by_type(uint8_t class, uint8_t type);
 size_t vscp_evnt_handler_get_num_classes(void);
 size_t vscp_evnt_handler_get_num_types(uint8_t class);

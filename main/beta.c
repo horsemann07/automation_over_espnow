@@ -92,12 +92,12 @@ static const char *TAG = "beta.c";
 #define VSCP_QUEUE_MAX_WAIT_TIMEOUT_MS     (pdTICKS_TO_MS(5000))
 #define VSCP_SEMAPHORE_MAX_WAIT_TIMEOUT_MS (pdTICKS_TO_MS(5000))
 
-#define EVENT_GOT_NICKNAME (1 << 1)
-#define EVENT_ENROLLED     (1 << 2)
-
-static const char *ENROL_STATUS_NVS = "enroll_status";
-static const char *STORAGE_NVS = "storage";
-static const char *ALPHA_ADDR_NVS = "alpha_addr";
+/**
+ *
+ */
+static const char *ENROL_STATUS_NVS = "enroll_status"; //
+static const char *STORAGE_NVS = "storage";            //
+static const char *ALPHA_ADDR_NVS = "alpha_addr";      //
 static const char *NICKNAME_NVS = "nickname";
 
 typedef struct {
@@ -120,6 +120,8 @@ static BackoffAlgorithmContext_t g_backoff_reconnect_params;
 
 extern esp_err_t espnow_security_inteface_init(handler_for_data_t handle);
 extern esp_err_t espnow_security_inteface_initiator_connect(espnow_addr_t addr, size_t addr_num, uint8_t *app_key);
+
+static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void);
 
 esp_err_t vscp_send_data(const void *data, size_t size);
 
@@ -184,6 +186,25 @@ esp_err_t vscp_register_new_node(uint8_t *src_addr, void *data, size_t size)
 }
 
 /**
+ * @brief Event handler for accepting the nickname.
+ *
+ * @return ESP_OK on success, error code otherwise.
+ */
+static esp_err_t vscp_nickname_accept_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
+
+    esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
+
+    return ret;
+}
+
+/**
  * @brief Event handler for setting the nickname.
  *
  * @param src_addr Source address.
@@ -218,7 +239,6 @@ static esp_err_t vscp_set_nickname_evt_cb(uint8_t *src_addr, void *data, size_t 
         ret = nvs_set_u8(nvs_handle, NICKNAME_NVS, global_self_nickname);
         if (ret != ESP_OK) {
             nvs_close(nvs_handle);
-
             return ret;
         }
     }
@@ -226,62 +246,6 @@ static esp_err_t vscp_set_nickname_evt_cb(uint8_t *src_addr, void *data, size_t 
     if (ret != ESP_OK) {
         return ret;
     }
-    return ESP_OK;
-}
-
-/**
- * @brief Event handler for accepting the nickname.
- *
- * @return ESP_OK on success, error code otherwise.
- */
-static esp_err_t vscp_nickname_accept_evt_cb(uint8_t *src_addr, void *data, size_t size)
-{
-    vscp_data_t vscp_data = { 0 };
-    size_t total_size = 0;
-    // prepare registration message
-    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
-        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_NICKNAME_ACCEPTED, NULL, &total_size);
-
-    esp_err_t ret = vscp_send_data((void *)&vscp_data, total_size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
-
-    return ret;
-}
-
-/**
- * @brief Event handler for enrolling.
- *
- * @param src_addr Source address.
- * @param data Data.
- * @param size Size of the data.
- * @return ESP_OK on success, error code otherwise.
- */
-static esp_err_t vscp_enroll_evt_cb(uint8_t *src_addr, void *data, size_t size)
-{
-    ESP_PARAM_CHECK(src_addr);
-    ESP_PARAM_CHECK(data);
-    ESP_PARAM_CHECK(size);
-    vscp_data_t *vscp = (vscp_data_t *)data;
-
-    if (memcmp(vscp->guid, global_alpha_addr, sizeof(vscp->guid)) == 0) {
-
-    	nvs_handle_t nvs_handle;
-        esp_err_t ret = nvs_open(STORAGE_NVS, NVS_READONLY, &nvs_handle);
-
-        if (ret != ESP_OK) {
-            return ret;
-        }
-
-        ret = nvs_set_u8(nvs_handle, ENROL_STATUS_NVS, 1);
-        nvs_close(nvs_handle);
-        if (ret != ESP_OK) {
-        	return ret;
-        }
-    }
-
-    ret = vscp_enroll_ack_evt_cb(src_addr, (void *)vscp, size);
-    ESP_ERROR_RETURN(ret != ESP_OK, ret, "vscp_enroll_ack_evt_cb <%s>", esp_err_to_name(ret));
-
     return ESP_OK;
 }
 
@@ -302,6 +266,44 @@ static esp_err_t vscp_enroll_ack_evt_cb(uint8_t *src_addr, void *data, size_t si
     ESP_ERROR_RETURN(ret != ESP_OK, ret, "<%s> vscp_send_data", esp_err_to_name(ret));
 
     return ret;
+}
+
+/**
+ * @brief Event handler for enrolling.
+ *
+ * @param src_addr Source address.
+ * @param data Data.
+ * @param size Size of the data.
+ * @return ESP_OK on success, error code otherwise.
+ */
+static esp_err_t vscp_enroll_evt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    ESP_PARAM_CHECK(src_addr);
+    ESP_PARAM_CHECK(data);
+    ESP_PARAM_CHECK(size);
+
+    esp_err_t ret;
+    vscp_data_t *vscp = (vscp_data_t *)data;
+
+    if (memcmp(vscp->guid, global_alpha_addr, sizeof(vscp->guid)) == 0) {
+        nvs_handle_t nvs_handle;
+        esp_err_t ret = nvs_open(STORAGE_NVS, NVS_READONLY, &nvs_handle);
+
+        if (ret != ESP_OK) {
+            return ret;
+        }
+
+        ret = nvs_set_u8(nvs_handle, ENROL_STATUS_NVS, 1);
+        nvs_close(nvs_handle);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    ret = vscp_enroll_ack_evt_cb(src_addr, (void *)vscp, size);
+    ESP_ERROR_RETURN(ret != ESP_OK, ret, "vscp_enroll_ack_evt_cb <%s>", esp_err_to_name(ret));
+
+    return ESP_OK;
 }
 
 /**
@@ -340,6 +342,34 @@ static esp_err_t vscp_general_meas_evt_cb(uint8_t *src_addr, void *data, size_t 
     return ret;
 }
 
+static esp_err_t vscp_nickname_dropped_evnt_cb(uint8_t *src_addr, void *data, size_t size)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t ret = nvs_open(STORAGE_NVS, NVS_READWRITE, &nvs_handle);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_erase_key(nvs_handle, NICKNAME_NVS);
+    nvs_close(nvs_handle);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    vscp_data_t vscp_data = { 0 };
+    size_t total_size = 0;
+    // prepare registration message
+    (void)helper_prepare_vscp_nodes_message((void *)&vscp_data, VSCP_MSG_TYPE_RESPONSE, VSCP_PRIORITY_NORMAL,
+        VSCP_CLASS1_PROTOCOL, VSCP_TYPE_PROTOCOL_DROP_NICKNAME_ACK, NULL, &total_size);
+
+    ret = vscp_send_data((void *)&vscp_data, total_size);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return ESP_OK;
+}
+
 /**
  * @brief Event handler for time synchronization events.
  *
@@ -367,10 +397,12 @@ static esp_err_t vscp_measurement_class_evnt(uint8_t *src_addr, void *data, size
     ESP_PARAM_CHECK(data);
     ESP_PARAM_CHECK(size != 0);
 
+    esp_err_t ret;
     vscp_data_t *vscp = (vscp_data_t *)data;
+
     switch (vscp->vscp_type) {
         case VSCP_TYPE_MEASUREMENT_GENERAL:
-            esp_err_t ret = vscp_general_meas_evt_cb(src_addr, (void *)vscp, size);
+            ret = vscp_general_meas_evt_cb(src_addr, (void *)vscp, size);
             ESP_ERROR_RETURN(ret != ESP_OK, ret, "vscp_general_meas_evt_cb <%s>", esp_err_to_name(ret));
             break;
 
@@ -386,10 +418,11 @@ static esp_err_t vscp_control_class_evnt(uint8_t *src_addr, void *data, size_t s
     ESP_PARAM_CHECK(data);
     ESP_PARAM_CHECK(size != 0);
 
+    esp_err_t ret;
     vscp_data_t *vscp = (vscp_data_t *)data;
     switch (vscp->vscp_type) {
         case VSCP_TYPE_CONTROL_TIME_SYNC:
-            esp_err_t ret = vscp_timesync_evt_cb(src_addr, (void *)vscp, size);
+            ret = vscp_timesync_evt_cb(src_addr, (void *)vscp, size);
             ESP_ERROR_RETURN(ret != ESP_OK, ret, "vscp_timesync_evt_cb <%s>", esp_err_to_name(ret));
             break;
 
@@ -455,7 +488,7 @@ static void vscp_recv_task(void *arg)
             ESP_ERROR_GOTO(ret != ESP_OK, OUTLOOP, "helper_verify_crc <%s>", esp_err_to_name(ret));
 
             /* get event callback */
-            evt_handler = vscp_get_event_handler_by_class(data->vscp_class);
+            evt_handler = vscp_evnt_handler_get_class_handler(data->vscp_class);
             ESP_ERROR_GOTO(!evt_handler, OUTLOOP, "event handler not register for class %d", data->vscp_class);
 
             /* call event handler */
@@ -532,7 +565,7 @@ esp_err_t vscp_send_data(const void *data, size_t size)
     espnow_frame_head_t frame_head = { .retransmit_count = 2, .broadcast = true, .security = true, .ack = true };
     memcpy(espnow_data, data, size);
 
-    /* init backoff attemp done */
+    /* init backoff attempt done */
     g_backoff_reconnect_params.attemptsDone = 0;
     do {
         ret = espnow_send(ESPNOW_DATA_TYPE_DATA, global_alpha_addr, espnow_data, size, &frame_head,
@@ -585,8 +618,7 @@ static esp_err_t vscp_establish_secure_connection_with_backoff_delay(void)
      */
     do {
         // TODO:
-        ret = espnow_security_inteface_initiator_connect(NULL, 0,
-            (uint8_t *)&key_info); // send broadcast message
+        ret = espnow_security_inteface_initiator_connect(NULL, 0, (uint8_t *)&key_info); // send broadcast message
 
         if (ret != ESP_OK) {
             /* Generate a random number and get back-off value (in milliseconds)
